@@ -1,0 +1,125 @@
+<!doctype html>
+<!--
+  Broadcast Browser's test pattern: colour bars, a 1-px border (the picture's exact edges), a bar
+  sweeping across once a second and a frame counter, to check an output end to end: the picture is
+  1920×1080 and not scaled, and motion is smooth (a stutter in the sweep is a dropped or repeated
+  frame). ?label=... puts a line of text in the middle.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Test Pattern</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+        background: #000;
+        color: #fff;
+        font: 600 40px/1.2 -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
+        cursor: none;
+      }
+      .bars {
+        position: absolute;
+        inset: 0 0 360px 0;
+        display: flex;
+      }
+      .bars div {
+        flex: 1;
+      }
+      .ramp {
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 240px;
+        height: 120px;
+        background: linear-gradient(90deg, #000, #fff);
+      }
+      .info {
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 240px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 80px;
+        box-sizing: border-box;
+        font-variant-numeric: tabular-nums;
+      }
+      .label {
+        position: absolute;
+        left: 50%;
+        top: 330px;
+        transform: translateX(-50%);
+        padding: 14px 36px;
+        background: rgba(0, 0, 0, 0.75);
+        font-size: 64px;
+        white-space: nowrap;
+      }
+      .sweep {
+        position: absolute;
+        top: 0;
+        bottom: 240px;
+        width: 24px;
+        background: #fff;
+        mix-blend-mode: difference;
+        will-change: transform;
+      }
+      .edge {
+        position: absolute;
+        inset: 0;
+        box-shadow: inset 0 0 0 1px #fff;
+        pointer-events: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="bars">
+      <div style="background: #c0c0c0"></div>
+      <div style="background: #c0c000"></div>
+      <div style="background: #00c0c0"></div>
+      <div style="background: #00c000"></div>
+      <div style="background: #c000c0"></div>
+      <div style="background: #c00000"></div>
+      <div style="background: #0000c0"></div>
+    </div>
+    <div class="ramp"></div>
+    <div class="sweep" id="sweep"></div>
+    <div class="label" id="label">Broadcast Browser · 1920×1080</div>
+    <div class="info">
+      <span id="clock"></span>
+      <span id="frames"></span>
+      <span id="rate"></span>
+    </div>
+    <div class="edge"></div>
+    <script>
+      const label = new URLSearchParams(location.search).get('label');
+      if (label) document.getElementById('label').textContent = label;
+      const sweep = document.getElementById('sweep');
+      const clock = document.getElementById('clock');
+      const frames = document.getElementById('frames');
+      const rate = document.getElementById('rate');
+      let n = 0;
+      let count = 0;
+      let since = performance.now();
+      function tick(t) {
+        n++;
+        count++;
+        sweep.style.transform = `translateX(${((t / 1000) % 1) * (1920 - 24)}px)`;
+        frames.textContent = `frame ${n}`;
+        clock.textContent = new Date().toLocaleTimeString([], { hour12: false });
+        if (t - since >= 1000) {
+          rate.textContent = `${((count * 1000) / (t - since)).toFixed(2)} fps drawn`;
+          count = 0;
+          since = t;
+        }
+        requestAnimationFrame(tick);
+      }
+      requestAnimationFrame(tick);
+    </script>
+  </body>
+</html>

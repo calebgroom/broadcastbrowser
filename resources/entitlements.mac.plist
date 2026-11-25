@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  What Broadcast Browser's hardened runtime allows (electron-builder.yml: entitlements). The app isn't
+  sandboxed, so it needs nothing for the network (NDI) or files.
+-->
+<plist version="1.0">
+  <dict>
+    <!-- Electron's JavaScript engine compiles code as it runs. -->
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+    <!-- The NDI library (NewTek's), and the DeckLink and Syphon addons, loaded from inside the app. -->
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+  </dict>
+</plist>

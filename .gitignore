@@ -155,3 +155,19 @@ vite.config.ts.timestamp-*
 .nx/cache
 .nx/workspace-data
 .nx/migrate-runs
+
+# Broadcast Browser
+release/
+# (Files Claude handed over while working on the project: not part of it.)
+Claude outputs/
+# (Made by scripts/notices.mjs, for the app; THIRD_PARTY_NOTICES.md is the one kept in the repo.)
+THIRD_PARTY_NOTICES.html
+decklink/build/
+decklink/test/build/
+syphon/build/
+.DS_Store
+# Signing: never commit a certificate or a notarization key (README.md, "Signing and notarizing").
+*.p12
+*.p8
+*.cer
+*.certSigningRequest

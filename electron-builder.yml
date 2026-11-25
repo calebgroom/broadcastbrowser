@@ -1,0 +1,95 @@
+# The packaged app: `pnpm run dist` (scripts/dist.mjs, which builds the NDI, DeckLink and Syphon addons for
+# the right kind of Mac first, then runs electron-builder with this). See README.md, "Building the app".
+appId: io.github.calebgroom.broadcastbrowser
+productName: Broadcast Browser
+directories:
+  output: release
+  # The icon and the installer's background (resources/: README.md, "The icon").
+  buildResources: resources
+files:
+  - package.json
+  - src/**
+  - operator/**
+  - pages/**
+  # (The icon, for the About window: the .icns electron-builder makes is for the Finder and the Dock.)
+  - resources/icon.png
+  - decklink/build/Release/decklink.node
+  - syphon/build/Release/syphon.node
+  # (The NDI addon is in its package's dist/; leave out its SDK, sources and build folder.)
+  - '!node_modules/@stagetimerio/grandiose/{ndi,src,build,scripts}/**'
+# Native code can't run from inside the app's archive.
+asarUnpack:
+  - '**/*.node'
+  - '**/*.dylib'
+# (scripts/dist.mjs builds the addons for the target processor itself.)
+npmRebuild: false
+# Electron's fuses: switches in the app's own binary, set as it's packaged (before it's signed), so
+# nobody can turn them back on. Off: the ways to run the signed app as something else, with its
+# identity and its permissions (as Node: ELECTRON_RUN_AS_NODE; NODE_OPTIONS; --inspect, a debugger).
+# On: the app's code only from its archive, and that archive checked against the hash the signature
+# covers; sign-ins (cookies) encrypted on disk, with a key in the Keychain. file:// pages get no
+# more than Chrome gives them (favorites.js, localFileProblem: only .html, anyway). README.md,
+# "Building the app". (pnpm start runs Electron as it comes, without these.)
+electronFuses:
+  runAsNode: false
+  enableNodeOptionsEnvironmentVariable: false
+  enableNodeCliInspectArguments: false
+  enableEmbeddedAsarIntegrityValidation: true
+  onlyLoadAppFromAsar: true
+  enableCookieEncryption: true
+  grantFileProtocolExtraPrivileges: false
+# The app's license and the third-party notices (scripts/notices.mjs), in Contents/Resources: Help menu.
+extraResources:
+  - LICENSE
+  - THIRD_PARTY_NOTICES.html
+mac:
+  category: public.app-category.video
+  # (A 1024-px PNG: electron-builder makes the .icns from it.)
+  icon: resources/icon.png
+  artifactName: ${productName}-${version}-${arch}.${ext}
+  target:
+    - dmg
+    - zip
+  # Signed with the "Developer ID Application" certificate in this Mac's Keychain (electron-builder
+  # finds it), with the hardened runtime notarization needs, and notarized: scripts/dist.mjs, and
+  # README.md, "Signing and notarizing". (No certificate: dist.mjs signs ad hoc.)
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  # What the hardened runtime has to allow: Electron's JavaScript engine, and the NDI, DeckLink and
+  # Syphon libraries (loaded from inside the app).
+  entitlements: resources/entitlements.mac.plist
+  entitlementsInherit: resources/entitlements.mac.plist
+  extendInfo:
+    # macOS asks before an app uses the local network: NDI does (and so do pages on the LAN).
+    NSLocalNetworkUsageDescription: Broadcast Browser sends its video over the network as NDI, and shows pages from your network.
+    NSBonjourServices:
+      - _ndi._tcp
+# The installer: a window with the app and Applications, and an arrow between them, to drag one
+# onto the other. (dmg-background@2x.png is put with dmg-background.png for Retina screens.)
+dmg:
+  title: ${productName} ${version}
+  background: resources/dmg-background.png
+  window:
+    width: 540
+    height: 380
+  iconSize: 100
+  contents:
+    - x: 140
+      y: 180
+      type: file
+    - x: 400
+      y: 180
+      type: link
+      path: /Applications
+# Updates (src/updater.js): published as GitHub releases of this repo (`pnpm run release`), as a
+# draft: published by hand on GitHub once checked, and only then do the apps find it. The app reads
+# the release's latest-mac.yml and .zip, with no sign-in: the repo has to be public.
+publish:
+  provider: github
+  owner: calebgroom
+  repo: broadcastbrowser
+  releaseType: draft
+linux:
+  icon: resources/icon.png
+  # (Only to test the packaging in the cloud: pnpm run dist -- --linux.)
+  target: dir

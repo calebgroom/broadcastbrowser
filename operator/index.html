@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' app:; style-src 'self' 'unsafe-inline' app:; img-src 'self' app: blob: data:" />
+    <title>Broadcast Browser</title>
+    <link rel="stylesheet" href="operator.css" />
+  </head>
+  <body>
+    <header>
+      <h1>Broadcast Browser</h1>
+      <!-- The outputs: each shows how it's doing, and turns it on or off (also the Output menu). -->
+      <button id="ndi" class="pill switch" aria-pressed="false"><span class="dot"></span><span class="text">NDI</span></button>
+      <button id="sdi" class="pill switch" aria-pressed="false"><span class="dot"></span><span class="text">SDI</span></button>
+      <button id="syphon" class="pill switch" aria-pressed="false" hidden><span class="dot"></span><span class="text">Syphon</span></button>
+      <div id="rates" class="rates"></div>
+      <!-- An update: downloading, then ready (click: restart to install it; asked first if an output is on). -->
+      <button id="update" class="update-pill" hidden></button>
+      <a id="control" class="control" href="#" title="Control API, for Bitfocus Companion"></a>
+    </header>
+
+    <main>
+      <!-- Favorites: click one to load it into the preview (Cmd+Option+1…9); Shift-click to put it on air (Control+Option+Cmd+1…9). -->
+      <aside id="side" class="side">
+        <!-- Folded: a slim strip (the monitors get the width), with the favorites' numbers. -->
+        <div class="side-strip">
+          <button id="side-open" class="side-toggle" title="Show the favorites">⟩</button>
+          <ol id="favs-mini" class="favs-mini"></ol>
+        </div>
+        <div class="side-head">
+          <h2>Favorites</h2>
+          <button id="fav-add" title="Add the preview's page (Cmd+D)">＋ Preview's page</button>
+          <button id="side-close" class="side-toggle" title="Fold the favorites away: the monitors get the width (⌥⌘1…9 still work)">⟨</button>
+        </div>
+        <div class="home-row">
+          <button id="home-go" class="home-go" title="Home, into the preview (Cmd+Shift+H). Shift-click: on air."><span class="ico">⌂</span><span class="name">Home</span><span id="home-url" class="url"></span></button>
+          <button id="home-set" class="small" title="Make the preview's page home">Set</button>
+        </div>
+        <ol id="favs" class="favs"></ol>
+        <p class="hint">Click (⌥⌘1…9): into the preview, in a new tab (or the tab already on it). <b>Shift-click</b> (⌃⌥⌘1…9): on air once loaded.</p>
+        <!-- Adding or changing a favorite. -->
+        <form id="fav-form" class="fav-form" hidden>
+          <label>Name <input id="fav-name" type="text" autocomplete="off" spellcheck="false" /></label>
+          <label>Address <input id="fav-url" type="text" autocomplete="off" spellcheck="false" /></label>
+          <label>Zoom <input id="fav-zoom" type="number" min="25" max="500" step="5" placeholder="100" /> %</label>
+          <div class="row">
+            <button type="submit" class="primary">Save</button>
+            <button type="button" id="fav-cancel">Cancel</button>
+            <button type="button" id="fav-delete" class="danger">Delete</button>
+          </div>
+        </form>
+        <details id="errors-box" class="messages">
+          <summary>Messages <span id="error-count"></span></summary>
+          <ol id="errors"></ol>
+        </details>
+      </aside>
+
+      <section class="air">
+        <!-- The preview's address bar: Cmd+L. -->
+        <form id="nav" class="nav">
+          <span class="tag pv">PREVIEW</span>
+          <button type="button" id="back" title="Back (Cmd+[)">◀</button>
+          <button type="button" id="forward" title="Forward (Cmd+])">▶</button>
+          <button type="button" id="reload" title="Reload (Cmd+R; Shift-click: ignoring the cache)">⟳</button>
+          <button type="button" id="home" title="Home (Cmd+Shift+H)">⌂</button>
+          <input id="url" type="text" placeholder="An address (example.com, 10.0.0.5:8080, /Users/…/page.html) or words to search Google for" autocomplete="off" spellcheck="false" />
+          <button type="submit" class="primary" title="Into the preview (Enter): the address, or a Google search for the words. Shift+Enter: on air once loaded.">Go</button>
+        </form>
+
+        <!-- The two monitors. With Interact on, each is its page: click, scroll and type into it. -->
+        <div class="monitors">
+          <div class="monitor" data-role="preview">
+            <div class="mon-head">
+              <span class="tag pv">PREVIEW</span>
+              <span id="pv-title" class="mon-title"></span>
+              <span id="pv-blocked" class="blocked" hidden></span>
+            </div>
+            <div class="screen" id="pv-screen" tabindex="-1">
+              <canvas id="pv-canvas" width="960" height="540"></canvas>
+              <div id="pv-load" class="loadbar" hidden></div>
+              <div id="pv-error" class="page-error" hidden></div>
+            </div>
+            <div class="mon-tools">
+              <span class="lab">Scroll</span>
+              <button data-act="scroll-up" title="Up a screen (Alt+Page Up)">⇞</button>
+              <button data-act="scroll-down" title="Down a screen (Alt+Page Down)">⇟</button>
+              <button data-act="top" title="The top of the page">⤒</button>
+              <span class="lab">Zoom</span>
+              <button data-act="zoom-out" title="Zoom out (Cmd −)">−</button>
+              <button data-act="zoom-reset" class="zoom" title="Actual size (Cmd 0)">100%</button>
+              <button data-act="zoom-in" title="Zoom in (Cmd +)">+</button>
+              <button data-act="ads" class="ads-site" hidden></button>
+            </div>
+          </div>
+
+          <div class="monitor" data-role="program">
+            <div class="mon-head">
+              <span id="air-tag" class="tag air">ON AIR</span>
+              <span id="pg-title" class="mon-title"></span>
+              <span id="pg-blocked" class="blocked" hidden></span>
+            </div>
+            <div class="screen" id="pg-screen" tabindex="-1">
+              <canvas id="pg-canvas" width="960" height="540"></canvas>
+              <div id="pg-load" class="loadbar" hidden></div>
+              <div id="pg-error" class="page-error" hidden></div>
+              <!-- What's on air while it isn't the program's page: the held picture, or black. -->
+              <figure id="held" class="held" hidden>
+                <img id="held-img" alt="" />
+                <figcaption>On air</figcaption>
+              </figure>
+            </div>
+            <div class="mon-tools">
+              <span class="lab">Scroll</span>
+              <button data-act="scroll-up" title="Up a screen, on air (Page Up)">⇞</button>
+              <button data-act="scroll-down" title="Down a screen, on air (Page Down)">⇟</button>
+              <button data-act="top" title="The top of the page, on air">⤒</button>
+              <span class="lab">Zoom</span>
+              <button data-act="zoom-out" title="Zoom out, on air">−</button>
+              <button data-act="zoom-reset" class="zoom" title="Actual size, on air">100%</button>
+              <button data-act="zoom-in" title="Zoom in, on air">+</button>
+              <button data-act="reload" title="Reload the page on air (held until it's loaded)">⟳</button>
+              <button data-act="ads" class="ads-site" hidden></button>
+            </div>
+          </div>
+        </div>
+
+        <div class="controls">
+          <div class="group">
+            <button id="take" class="take" title="The preview on air; what's on air into the preview (Cmd+Return). A page still loading goes on air once it has.">TAKE <kbd>⌘↵</kbd></button>
+            <button id="live" class="show-as-is" title="Show the program's page as it is: not held (a page that failed to load, or one still loading)" hidden>Show as is</button>
+          </div>
+          <div class="group">
+            <button id="freeze" class="toggle" aria-pressed="false" title="Hold the picture on air; the program page carries on in its monitor (Cmd+Shift+F)">Freeze</button>
+            <button id="black" class="toggle danger-toggle" aria-pressed="false" title="Black on air (Cmd+B)">Black <kbd>⌘B</kbd></button>
+          </div>
+          <div class="group">
+            <button id="autoTake" class="toggle" aria-pressed="false" title="Every page loaded goes straight on air, once it has loaded">Auto take</button>
+            <button id="hold" class="toggle" aria-pressed="true" title="A page taken (or reloaded on air) while it's loading: the picture before stays on air until it has loaded">Hold while loading</button>
+          </div>
+          <div class="group">
+            <button id="interact" class="toggle" aria-pressed="false" title="Click, scroll and type into the pages in the monitors (the program's is on air, unless frozen)">Interact</button>
+            <button id="scrollbars" class="toggle" aria-pressed="false" title="The pages' scrollbars (hidden: nothing on air the audience doesn't need)">Scrollbars</button>
+            <button id="muted" class="toggle" aria-pressed="true" title="The page on air's sound muted (the outputs are picture only; unmuted, it plays out of this Mac). The preview is always muted.">Muted</button>
+          </div>
+          <div class="group">
+            <button id="adblock" class="toggle" aria-pressed="false" title="Block ads and trackers in every tab (but the sites allowed). It applies to pages as they load.">Block ads</button>
+            <button id="annoyances" class="toggle" aria-pressed="false" title="Hide cookie banners and other pop-ups in every tab (but the sites allowed). It applies to pages as they load.">Hide cookie banners</button>
+          </div>
+        </div>
+
+        <!-- Open tabs: every page open, each a tab of its own (the program's and the preview's marked). Click: into the preview; Shift-click: on air; ×: close; drag to reorder. -->
+        <!-- Drag to give the tabs more or less room (the monitors take the rest). Double-click: as small as it goes, or back. -->
+        <div id="splitter" class="splitter" role="separator" aria-orientation="horizontal" tabindex="0" title="Drag: the tabs smaller or larger (the monitors take the rest). Double-click: as small as it goes, or back."><span></span></div>
+        <div id="recent-box" class="recent-box">
+          <div class="recent-head">
+            <h2>Open Tabs</h2>
+            <span id="tab-count" class="kept-count"></span>
+            <button id="tab-new" class="small" title="A new tab in the preview (Cmd+T)">＋ New tab</button>
+            <button id="tab-reopen" class="small" title="Open the tab closed last again (Cmd+Shift+T)">↶ Reopen closed</button>
+            <label class="thumbs-every" title="How often the tabs' pictures are new. Off: only when a tab changes place (into or out of the preview or on air).">Pictures
+              <select id="thumbs">
+                <option value="1">every 1 s</option>
+                <option value="2">every 2 s</option>
+                <option value="5">every 5 s</option>
+                <option value="10">every 10 s</option>
+                <option value="30">every 30 s</option>
+                <option value="0">off</option>
+              </select>
+            </label>
+            <span class="hint-inline">Click (⌘1…9): into the preview · <b>Shift-click</b> (⌃⌘1…9): on air · drag to reorder</span>
+          </div>
+          <ol id="tabs" class="recent"></ol>
+        </div>
+      </section>
+    </main>
+    <script type="module" src="operator.js"></script>
+  </body>
+</html>

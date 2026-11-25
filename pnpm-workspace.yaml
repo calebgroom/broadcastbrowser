@@ -1,0 +1,8 @@
+# grandiose's install script is allowed: it downloads the NDI SDK and compiles the NDI addon.
+# (Electron downloads its own binary the first time it runs.)
+allowBuilds:
+  '@stagetimerio/grandiose': true
+  # (electron-builder's Windows installer tool: not needed for a Mac build.)
+  electron-winstaller: false
+minimumReleaseAgeExclude:
+  - electron@45.5.0

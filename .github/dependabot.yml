@@ -1,0 +1,17 @@
+# Dependabot: a pull request when a new Electron comes out (README.md, "Updates": Electron's patch
+# releases carry Chromium's security fixes, and the app is a browser that visits any site).
+# Only Electron, for now: add other dependencies to `allow` to have them watched too.
+version: 2
+updates:
+  - package-ecosystem: npm # (npm's ecosystem covers pnpm: package.json and pnpm-lock.yaml)
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: '06:00'
+      timezone: America/New_York
+    allow:
+      - dependency-name: electron
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: electron

@@ -1,0 +1,39 @@
+{
+  "name": "broadcast-browser",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Broadcast Browser: a web browser fixed at 1920×1080, driven from a control window and an HTTP API, out as NDI, SDI (Blackmagic DeckLink / UltraStudio) and/or Syphon.",
+  "author": "Caleb Groom",
+  "homepage": "https://github.com/calebgroom/broadcastbrowser",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/calebgroom/broadcastbrowser.git"
+  },
+  "bugs": "https://github.com/calebgroom/broadcastbrowser/issues",
+  "type": "module",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "decklink": "node decklink/build.mjs --verbose",
+    "syphon": "node syphon/build.mjs --verbose",
+    "postinstall": "node decklink/build.mjs && node syphon/build.mjs",
+    "dist": "node scripts/dist.mjs",
+    "release": "node scripts/dist.mjs --release",
+    "notices": "node scripts/notices.mjs"
+  },
+  "dependencies": {
+    "@ghostery/adblocker-electron": "2.20.3",
+    "electron-updater": "6.8.11"
+  },
+  "devDependencies": {
+    "electron": "45.5.0",
+    "electron-builder": "26.17.0",
+    "node-addon-api": "8.9.2",
+    "node-gyp": "11.5.0"
+  },
+  "optionalDependencies": {
+    "@stagetimerio/grandiose": "0.2.1"
+  },
+  "packageManager": "pnpm@12.16.1",
+  "productName": "Broadcast Browser"
+}
