@@ -145,6 +145,76 @@ header h1 {
 .pill.program .dot {
   background: var(--red);
 }
+/* (A switch the platform hasn't got, Syphon off the Mac: hidden, whatever its display.) */
+.pill[hidden] {
+  display: none;
+}
+/* The program tag with no program output on: nothing is going out, so not red. */
+.tag.air.off-air,
+.tag.air.off-air.frozen,
+.tag.air.off-air.loading,
+.tag.air.off-air.black {
+  background: #374151;
+  border: 1px solid #4b5563;
+  color: #e5e7eb;
+}
+/* No output on, of either feed: in the header, in place of the rates. */
+.no-outputs {
+  height: 26px;
+  padding: 0 12px;
+  border-radius: 13px;
+  border: 1px solid var(--amber);
+  background: rgba(244, 182, 61, 0.14);
+  color: var(--amber);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.no-outputs[hidden],
+.rates[hidden] {
+  display: none;
+}
+/* The program's switches: outlined until an output has ever been on (the first start), and
+   flashed when No outputs on is clicked. */
+.outs.guide .pill,
+.outs.flash .pill {
+  outline: 2px solid var(--amber);
+  outline-offset: 1px;
+}
+.outs.guide .pill {
+  animation: guide 1.6s ease-in-out infinite;
+}
+.outs.flash .pill {
+  animation: guide 0.6s ease-in-out 4;
+}
+@keyframes guide {
+  50% {
+    outline-color: transparent;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .outs.guide .pill,
+  .outs.flash .pill {
+    animation: none;
+  }
+}
+/* A monitor's output switches: at the right of its head, compact. */
+.outs {
+  margin-left: auto;
+  display: inline-flex;
+  gap: 6px;
+  flex: none;
+}
+.pill.small {
+  height: 22px;
+  gap: 5px;
+  padding: 0 9px;
+  font-size: 11px;
+}
+.pill.small .dot {
+  width: 7px;
+  height: 7px;
+}
 .rates {
   color: var(--dim);
   font-size: 12px;

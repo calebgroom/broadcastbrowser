@@ -38,9 +38,11 @@
 //   live                                the program on air as it is: not frozen, held or black
 //   freeze    { on? }                   hold the picture on air (the program page carries on)
 //   black     { on? }                   black on air
-//   outputs   { mode } | { ndi?, sdi?, syphon? } | { device } | { flip }   the video outputs: mode
-//                                       both, ndi, sdi or off; each on, off or toggle; device: the
-//                                       SDI port; flip: Syphon's picture upside down
+//   outputs   { feed?, mode } | { feed?, ndi?, sdi?, syphon? } | { feed?, device } | { flip }   the
+//                                       video outputs of a feed: program (the default) or preview.
+//                                       mode both, ndi, sdi or off; each on, off or toggle; device:
+//                                       its SDI port (never the other feed's); flip: Syphon's picture
+//                                       upside down (both feeds)
 //
 // Settings
 //   look      { scrollbars?, muted?, hold?, autoTake?, adblock?, annoyances? }   each true, false or
@@ -64,7 +66,7 @@
 //   favorite-move    { n|name|id, to? | by? }   to a place (from 1), or up (-1) / down (1)
 
 import { nativeImage } from 'electron';
-import { OUTPUT_MODES, saveSetting } from './config.js';
+import { fileSetting, OUTPUT_MODES, saveSetting } from './config.js';
 import { findDeckLink, listDeckLinks } from './decklink.js';
 import { normalizeUrl } from './favorites.js';
 import { BLANK, THUMB_EVERY } from './graphic.js';
@@ -97,58 +99,101 @@ export const LISTS = ['favorites', 'tabs'];
 
 export class Commands {
   /**
-   * @param {{ graphic: import('./graphic.js').Graphic, output: import('./ndi.js').Output, favorites: import('./favorites.js').Favorites,
-   *   home: () => string, setHome: (url: string) => void, onFavorites: () => void }} o
+   * @param {{ graphic: import('./graphic.js').Graphic, output: import('./ndi.js').Output, previewOutput: import('./ndi.js').Output,
+   *   favorites: import('./favorites.js').Favorites, home: () => string, setHome: (url: string) => void, onFavorites: () => void,
+   *   onPreviewOutput?: () => void }} o
+   * output: the program feed's outputs; previewOutput: the preview feed's. onPreviewOutput: the
+   * preview's switched (main.js: the preview draws at the output's rate while it has one on).
    */
-  constructor({ graphic, output, updater, favorites, home, setHome, onFavorites }) {
+  constructor({ graphic, output, previewOutput, updater, favorites, home, setHome, onFavorites, onPreviewOutput }) {
     this.graphic = graphic;
     this.output = output;
+    this.previewOutput = previewOutput;
+    this.onPreviewOutput = onPreviewOutput ?? (() => {});
     this.updater = updater;
     this.favorites = favorites;
     this.home = home;
     this.setHome = setHome;
     this.onFavorites = onFavorites;
     this.errors = [];
+    /**
+     * Whether an output has ever been turned on (kept in the settings file: "outputs-seen"). Until
+     * then, the control window points the way to the program's switches (operator.js).
+     */
+    this.outputsSeen = fileSetting('outputs-seen') === true;
   }
 
   error(e) {
     this.errors = [...this.errors.slice(-19), { at: new Date().toISOString(), message: e }];
   }
 
-  /** The SDI port: auto (the first free one), a number from 1, or a device's name. */
-  async setDeckDevice(device) {
+  /** Notes that an output has been on (once: the first start's guide to the switches is done with). */
+  noteOutputsSeen() {
+    const on = [this.output.want, this.previewOutput.want].some((w) => Object.values(w).some(Boolean));
+    if (!on || this.outputsSeen) return;
+    this.outputsSeen = true;
+    const err = saveSetting('outputs-seen', true);
+    if (err) this.error(err);
+  }
+
+  /** A feed's outputs: program (the default) or preview. */
+  feedOutput(feed) {
+    const f = String(feed ?? 'program').trim().toLowerCase() || 'program';
+    if (f === 'program') return this.output;
+    if (f === 'preview') return this.previewOutput;
+    throw new Error(`outputs: feed must be program or preview (got ${feed})`);
+  }
+
+  /**
+   * A feed's SDI port: auto (the first free one), a number from 1, or a device's name. Never the
+   * port the other feed is set to: one port carries one picture.
+   */
+  async setDeckDevice(device, feed = 'program') {
+    const out = this.feedOutput(feed);
+    const other = out === this.output ? this.previewOutput : this.output;
+    const which = out === this.output ? 'program' : 'preview';
     let setting = String(device ?? '').trim();
     // (Here 1 is the first port, not "on" as --decklink=1 is.)
     if (/^(auto|)$/i.test(setting)) setting = 'auto';
     else {
-      const { devices, error } = listDeckLinks(this.output.deckConfig.mode);
+      const { devices, error } = listDeckLinks(out.deckConfig.mode);
       const d = findDeckLink(devices, setting);
       if (!d) throw new Error(`outputs: no DeckLink device "${setting}" (${devices.length ? `found ${devices.map((x) => `${x.number}: ${x.name}`).join(', ')}` : error})`);
+      // (The other feed's port, as it's set or as it has it open: refused.)
+      const theirs = String(other.deckConfig.device ?? '').trim();
+      const theirsDevice = /^(auto|on|1|)$/i.test(theirs) ? null : findDeckLink(devices, theirs);
+      if ((theirsDevice && theirsDevice.name === d.name) || (other.deck && other.deckName === d.name))
+        throw new Error(`outputs: ${d.name} is the ${which === 'program' ? 'preview' : 'program'}'s SDI port: pick another for the ${which}`);
       // (By name: the numbers can change when devices come and go.)
       setting = d.name;
     }
-    await this.output.setDeckDevice(setting);
-    const err = saveSetting('decklink', setting);
+    await out.setDeckDevice(setting);
+    const err = saveSetting(which === 'program' ? 'decklink' : 'preview-decklink', setting);
     if (err) this.error(err);
-    if (this.output.want.sdi && this.output.deckError) this.error(`DeckLink: ${this.output.deckError}`);
-    this.graphic.repaint();
+    if (out.want.sdi && out.deckError) this.error(`DeckLink (${which}): ${out.deckError}`);
+    if (which === 'program') this.graphic.repaint();
+    else this.graphic.repaintPreview();
   }
 
   async setOutputs(a) {
     const only = (...keys) => keys.every((k) => a[k] === undefined);
+    const out = this.feedOutput(a.feed);
+    const which = out === this.output ? 'program' : 'preview';
     if (a.device !== undefined) {
-      await this.setDeckDevice(a.device);
+      await this.setDeckDevice(a.device, which);
       if (only('mode', 'ndi', 'sdi', 'syphon', 'flip')) return this.status();
     }
     if (a.flip !== undefined) {
       const on = onOff(a.flip, 'outputs: flip');
       const flip = on === undefined ? !this.output.syphonFlip : on;
+      // (Both feeds' Syphon: one setting.)
       this.output.setSyphonFlip(flip);
+      this.previewOutput.setSyphonFlip(flip);
       const err = saveSetting('syphon-flip', flip);
       if (err) this.error(err);
       if (only('mode', 'ndi', 'sdi', 'syphon')) return this.status();
     }
-    const now = this.output.want;
+    const now = out.want;
     let want;
     if (a.mode !== undefined) {
       const mode = OUTPUT_MODES[String(a.mode)];
@@ -159,13 +204,29 @@ export class Commands {
       want = { ndi: pick(a.ndi, now.ndi, 'ndi'), sdi: pick(a.sdi, now.sdi, 'sdi'), syphon: pick(a.syphon, now.syphon, 'syphon') };
     }
     const was = { ...now };
-    await this.output.setOutputs(want);
-    // (One that failed to start: say why.)
-    if (want.ndi && !was.ndi && this.output.ndiError) this.error(`NDI: ${this.output.ndiError}`);
-    if (want.sdi && !was.sdi && this.output.deckError) this.error(`DeckLink: ${this.output.deckError}`);
-    if (want.syphon && !was.syphon && !this.output.syphon) this.error(`Syphon: ${this.output.syphonError}`);
+    // (SDI on for one feed while the other has that port: refused, before anything's switched.)
+    if (want.sdi && !was.sdi) {
+      const other = out === this.output ? this.previewOutput : this.output;
+      const mine = String(out.deckConfig.device ?? '').trim();
+      const theirs = other.deck ? other.deckName : null;
+      if (theirs && !/^(auto|on|1|)$/i.test(mine)) {
+        const d = findDeckLink(listDeckLinks(out.deckConfig.mode).devices, mine);
+        if (d && d.name === theirs) throw new Error(`outputs: ${d.name} is the ${which === 'program' ? 'preview' : 'program'}'s SDI port: pick another port for the ${which} (Output menu)`);
+      }
+    }
+    await out.setOutputs(want);
+    this.noteOutputsSeen();
+    // (One that failed to start: say why, and for which feed.)
+    const tag = which === 'program' ? '' : ' (preview)';
+    if (want.ndi && !was.ndi && out.ndiError) this.error(`NDI${tag}: ${out.ndiError}`);
+    if (want.sdi && !was.sdi && out.deckError) this.error(`DeckLink${tag}: ${out.deckError}`);
+    if (want.syphon && !was.syphon && !out.syphon) this.error(`Syphon${tag}: ${out.syphonError}`);
     // (Back on: the picture now, not at the next change.)
-    this.graphic.repaint();
+    if (which === 'program') this.graphic.repaint();
+    else {
+      this.onPreviewOutput();
+      this.graphic.repaintPreview();
+    }
     return this.status();
   }
 
@@ -181,6 +242,10 @@ export class Commands {
       home: this.home(),
       favorites: this.favorites.list(),
       output: { ...this.output.status(), paintMs: this.graphic.paintMs },
+      // (The preview feed's outputs: the same shape. output, above, is the program's.)
+      previewOutput: this.previewOutput.status(),
+      // (Never an output on yet: the control window shows the way to the switches.)
+      outputsSeen: this.outputsSeen,
       update: this.updater?.status() ?? null,
       errors: this.errors,
     };

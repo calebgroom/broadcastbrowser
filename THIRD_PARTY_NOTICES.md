@@ -8,7 +8,7 @@ NDI® is a registered trademark of Vizrt NDI AB (https://ndi.video/). Blackmagic
 
 ## Electron and Chromium
 
-The app is built with Electron 44.9.0 (MIT License, © GitHub Inc. and Electron contributors: https://github.com/electron/electron), which includes Chromium and its many components under their own licenses. Their full notices ship inside the app with Electron itself (`LICENSE` and `LICENSES.chromium.html`), and are at https://github.com/electron/electron/blob/main/LICENSE and https://source.chromium.org/chromium/chromium/src/+/main:LICENSE.
+The app is built with Electron 45.5.0 (MIT License, © GitHub Inc. and Electron contributors: https://github.com/electron/electron), which includes Chromium and its many components under their own licenses. Their full notices ship inside the app with Electron itself (`LICENSE` and `LICENSES.chromium.html`), and are at https://github.com/electron/electron/blob/main/LICENSE and https://source.chromium.org/chromium/chromium/src/+/main:LICENSE.
 
 ## NDI
 

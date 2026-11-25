@@ -39,9 +39,16 @@ It opens the last page shown; the first time, home (black, until you set one).
 
 ### Outputs
 
-**Every output is off when the app starts**, unless you've said otherwise with a setting (`--output`, `--ndi`, `--syphon`: below). Nothing goes out over NDI, SDI or Syphon until you turn it on: click **NDI**, **SDI** or **Syphon** in the header (or use the **Output** menu, or `/outputs` in the control API), once the page you want is up. The switches aren't remembered: the next start is off again (or as the settings say). `--decklink` and **Output → SDI Port** only pick the device SDI uses; they don't turn it on.
+There are two feeds, each with its own NDI, SDI and Syphon outputs:
 
-In vMix: **Add Input → NDI / Desktop Capture**, and pick `<this Mac's name> (Broadcast Browser)`. In OBS on the same Mac: **Sources → + → Syphon Client**, **Broadcast Browser**.
+- **Program**: what's on air, with hold while loading, freeze and black.
+- **Preview**: the page in the preview, as it is (none of those: they're the program's). For a producer to watch what's coming, on a switcher's multiview or a monitor of their own, and call the take.
+
+**Every output is off when the app starts**, unless you've said otherwise with a setting (`--output`, `--ndi`, `--syphon`, `--preview-ndi`, `--preview-sdi`, `--preview-syphon`: below). Nothing goes out until you turn it on: the **NDI**, **SDI** and **Syphon** switches at the right of each monitor's title are that feed's (or **Output → Program / Preview**, or `/outputs` in the control API). The switches aren't remembered: the next start is off again (or as the settings say). While nothing of the program goes out, its tag says **NOT ON AIR** (grey) instead of **ON AIR**, and while no output of either feed is on, the header says **No outputs on** (click it to see the switches). The first time the app starts, the program's switches are outlined until an output has been turned on.
+
+Each feed's SDI goes out of its own port: the program's the first free one, the preview's the second, until you pick others (**Output → Program → SDI Port**, **Output → Preview → SDI Port**). One port carries one feed: the other feed's port is marked in the list, and can't be picked. Both feeds go out in the same format (`--decklink-mode`), as a switcher wants all its inputs. With the preview's outputs on, the preview's page draws at the full frame rate, as the program's does: twice the work for the Mac, so check it copes (the header's **drawn/s** and **ms/frame**).
+
+The sources are named for their feed: in an ATEM or vMix, **Add Input → NDI**, `<this Mac's name> (Broadcast Browser Program)` and `(Broadcast Browser Preview)`; in OBS on the same Mac, **Sources → + → Syphon Client**, **Broadcast Browser Program** or **Preview**.
 
 ## Tabs, preview and program
 
@@ -140,7 +147,7 @@ The first time there are two: **Test Pattern** (`app://pages/test.html`: colour 
 | **Scrollbars** | Off by default: nothing on air the audience doesn't need |
 | **Muted** | The sound of the page on air |
 
-Problems appear under **Messages**, which opens by itself when there's a new one. The NDI, SDI and Syphon switches in the header turn each output on and off, and show how it's doing. A grey dot: off. Green: working (NDI also says how many receivers it has; SDI, the device and format). Amber: on, but not working, and the switch says why (hover for more). **NDI** turns red while a switcher has it on program. **SDI** uses the port chosen in **Output → SDI Port** (or the first free one).
+Problems appear under **Messages**, which opens by itself when there's a new one. The NDI, SDI and Syphon switches by each monitor turn that feed's outputs on and off, and show how they're doing. A grey dot: off. Green: working (**NDI · 2**: two receivers; **SDI · 2**: going out of port 2). Amber: on, but not working (hover to see why). **NDI** turns red while a switcher has that source on program. Hover over any of them for the detail.
 
 The pages run in a browser session of their own (shared by every tab): cookies and logins are kept between starts (see "Sign-ins"). They see Chrome's user agent. A page's pop-ups and links to a new window open in the same tab; `alert()`, `confirm()` and `prompt()` are answered without showing anything; a page can't ask "leave this page?"; camera, microphone, location and notifications are refused. A video page plays without a click. **View → Preview Developer Tools** and **Program Developer Tools** open Chrome's tools on either page.
 
@@ -218,7 +225,7 @@ Pages load into the **preview**; `take=true` puts one on air once it's loaded (w
 | `/favorite-remove?n=3` · `/favorite-move?n=3&to=1` · `/favorite-move?id=…&by=-1` | Delete one; move one to a place, or up or down |
 | `/signout` · `/signout?target=program` · `/signout?url=example.com` · `/signout?all=true` | Sign out of the preview's site (the page on air's, or that address's), or of every site (see "Sign-ins") |
 | `/set-home` · `/set-home?url=…` · `/set-home?target=program` | Home: the preview's page, that address, or the page on air |
-| `/outputs?mode=both` · `/outputs?ndi=toggle` · `/outputs?sdi=false` · `/outputs?device=3` | The video outputs: `mode` `both` (NDI and SDI), `ndi`, `sdi` or `off` (everything off, Syphon too); or each of `ndi`, `sdi`, `syphon` on its own (`true`, `false` or `toggle`); `device`: the SDI port (`auto`, a number from 1, or part of a device's name) |
+| `/outputs?mode=both` · `/outputs?ndi=toggle` · `/outputs?sdi=false` · `/outputs?device=3` · `&feed=preview` | A feed's video outputs: the program's (or with `feed=preview`, the preview's). `mode` `both` (NDI and SDI), `ndi`, `sdi` or `off` (everything off, Syphon too); or each of `ndi`, `sdi`, `syphon` on its own (`true`, `false` or `toggle`); `device`: its SDI port (`auto`, a number from 1, or part of a device's name; never the other feed's). `status.output` is the program's, `status.previewOutput` the preview's |
 | `/outputs?syphon=toggle` · `/outputs?flip=toggle` | Syphon on or off; its picture flipped or not |
 | `/update-check` | Look for a new version now (`status.update`: `state` idle, checking, downloading, ready, none, error or dev; `version`, `percent`). It's installed from the control window (or as the app quits), never from the API |
 
@@ -250,10 +257,12 @@ Settings come from the command line, after `--`, in the environment (`BROADCAST_
 | `--output` | off | The outputs on at start-up: `both` (NDI and SDI), `ndi`, `sdi` or `off`. |
 | `--ndi` | off | NDI on at start-up: `--ndi` (or `on`), or `off`. Beats `--output`. |
 | `--syphon` | off | Syphon on at start-up: `--syphon` (or `on`), or `off`. `--output` leaves it as it is, except `off`. |
-| `--decklink` | the first free device | The device SDI/HDMI output uses once it's on: `--decklink=2`, or part of a device's name (**Output → SDI Port** sets it). |
+| `--decklink` | the first free device | The device the program's SDI/HDMI output uses once it's on: `--decklink=2`, or part of a device's name (**Output → Program → SDI Port** sets it). |
+| `--preview-ndi`, `--preview-sdi`, `--preview-syphon` | off | The preview feed's outputs on at start-up: each on its own (`--preview-ndi`, or `on`), or `off`. |
+| `--preview-decklink` | `2` | The device the preview's SDI output uses: a port's number, or part of a device's name (**Output → Preview → SDI Port** sets it). Never the program's. |
 | `--decklink-mode` | `1080p59.94` | The SDI format (it sets the frame rate for NDI too). Match the switcher. |
 | `--auto-update` | on | Look for updates at start-up and every 4 hours (they're installed only when you say, or as the app quits): `--auto-update=0` not to. **Check for Updates Automatically** in the app menu sets it. |
-| `--syphon-flip` | off | Syphon's picture upside down, for an app that shows it so (**Output → Flip Syphon Picture** sets it). |
+| `--syphon-flip` | off | Syphon's picture upside down (both feeds'), for an app that shows it so (**Output → Flip Syphon Picture** sets it). |
 
 The file also keeps `favorites` (`[{ "id", "name", "url", "zoom"? }]`, in order: you can edit them there too, then restart), `tabs` (the tabs open, in order, and which is on air and which in the preview) and `look` (scrollbars, muted, hold, autoTake, thumbs, adblock, annoyances), `adblock-allow` (the sites ad blocking leaves alone) and `api-token` (unless you set it yourself), which the app writes itself.
 
@@ -370,7 +379,7 @@ Each Mac updates to its own: an Apple Silicon Mac to the Apple Silicon app (the 
 - **"NDI · the NDI library isn't installed"**: `pnpm install` didn't get the NDI SDK or build its addon. Run `pnpm install` again and look at what it says about NDI (it needs Xcode's command-line tools: `xcode-select --install`).
 - **"DeckLink support isn't built"**: `pnpm run decklink` builds it again, and shows why it doesn't (usually Xcode's command-line tools).
 - **"Blackmagic Desktop Video isn't installed"**: install Desktop Video (14.4 or later) from blackmagicdesign.com/support. On Apple Silicon, allow its system extension when macOS asks, and restart.
-- **"… is in use by another app"**: another app (vMix, Media Express, another copy of this one) is playing out of that device. Close it there, or pick another port in **Output → SDI Port**.
+- **"… is in use by another app"**: another app (vMix, Media Express, another copy of this one), or this app's other feed, is playing out of that device. Close it there, or pick another port (**Output → Program → SDI Port**, or **Preview**).
 - **"… can't output 1080p59.94"** (or another format): that device doesn't do that format. Pick one it does with `--decklink-mode`, or another device.
 - **"… isn't active in the card's profile"**: on a card with several ports, Desktop Video Setup's profile decides which ones are outputs. Change it there, or pick an active port.
 - **"the device has stopped taking frames"**: the device was unplugged, or another app took it. Turn SDI off and on again.

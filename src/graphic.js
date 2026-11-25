@@ -94,6 +94,8 @@ export class Graphic {
     this.heldImage = null;
     this.resend = false;
     this.closed = false;
+    /** Whether the preview has an output of its own on (main.js: setPreviewOutput): it draws at the output's rate then. */
+    this.previewFull = false;
 
     /** The browsers' session (keep-signins off: in memory only, config.js). */
     this.partition = o.keepSignIns === false ? MEMORY_PARTITION : PARTITION;
@@ -149,7 +151,7 @@ export class Graphic {
     this.preview = this.make();
     this.tabs = [this.program, this.preview];
     this.program.setRole('program', { fps: o.fps, muted: this.look.muted });
-    this.preview.setRole('preview');
+    this.preview.setRole('preview', this.previewRate());
 
     // Ad blocking (src/adblock.js): off unless the look switches it on; every tab, but allowed sites.
     this.adblock = new AdBlock({
@@ -219,6 +221,9 @@ export class Graphic {
       this.resend = false;
       if (!this.o.wantFrames || this.o.wantFrames()) this.o.onFrame(this.airBitmap(img));
     }
+    // (The preview feed: the preview's page as it is, every frame: no hold, freeze or black, which
+    // are the program's. Only while one of its outputs wants frames.)
+    if (b === this.preview && this.o.wantPreviewFrames?.()) this.o.onPreviewFrame(img.toBitmap());
     // (A tab's picture: every `thumbs` seconds; with 0, once after it changes place, and its first.)
     const now = Date.now();
     const every = Number(this.look.thumbs ?? 5);
@@ -261,6 +266,29 @@ export class Graphic {
     if (air === 'live') return img.toBitmap();
     // (Held, with nothing held: the app has just started, or it was black. Black rather than a page half drawn.)
     return this.heldImage ? this.heldImage.toBitmap() : black();
+  }
+
+  /**
+   * The preview's own outputs on or off (main.js): on, the preview draws at the output's rate, so
+   * its feed moves as smoothly as the program's; off, only as fast as its monitor needs.
+   */
+  setPreviewOutput(on) {
+    if (!!on === this.previewFull) return;
+    this.previewFull = !!on;
+    if (this.closed || !this.preview.alive()) return;
+    this.preview.setRole('preview', this.previewRate());
+    this.preview.wc.invalidate();
+  }
+
+  /** The preview's role options: the output's rate while it has an output of its own. */
+  previewRate() {
+    return this.previewFull ? { fps: this.o.fps } : {};
+  }
+
+  /** Draws the preview again (its output just switched on, or a Syphon client started watching). */
+  repaintPreview() {
+    if (this.closed || !this.preview.alive()) return;
+    this.preview.wc.invalidate();
   }
 
   /** Draws the program again (an output just switched on: it gets the picture now, not at the next change). */
@@ -432,7 +460,7 @@ export class Graphic {
     if (!this.tabs.includes(b)) throw new Error('no such tab');
     const cur = this.preview;
     this.preview = b;
-    b.setRole('preview');
+    b.setRole('preview', this.previewRate());
     if (cur.isBlank()) this.removeTab(cur, { remember: false });
     else cur.setRole('tab');
     // (Both changed place: new pictures for their cards.)
@@ -486,12 +514,12 @@ export class Graphic {
       const next = others.find((x) => this.tabs.indexOf(x) > i) ?? others.at(-1);
       if (next) {
         this.preview = next;
-        next.setRole('preview');
+        next.setRole('preview', this.previewRate());
       } else {
         const n = this.make();
         this.tabs.splice(i + 1, 0, n);
         this.preview = n;
-        n.setRole('preview');
+        n.setRole('preview', this.previewRate());
         n.go(BLANK, { placeholder: true });
       }
     }
@@ -669,7 +697,7 @@ export class Graphic {
     this.program = to;
     this.preview = from;
     to.setRole('program', { fps: this.o.fps, muted: this.look.muted });
-    from.setRole('preview');
+    from.setRole('preview', this.previewRate());
     to.thumbAt = from.thumbAt = 0;
     to.thumbSettled = from.thumbSettled = false;
     // (The new preview's monitor: its picture now, even if the page doesn't change.)

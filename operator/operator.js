@@ -90,52 +90,77 @@ function showRates(out) {
   }
 }
 
-function showOutputs(out) {
+/**
+ * A feed's outputs (out: the status's output, the program's, or previewOutput), on its monitor's
+ * switches (pre: pg or pv). Short labels there; all the detail on hover.
+ */
+function showOutputs(out, pre, feed) {
+  if (!out) return;
   const o = out.outputs;
+  const Feed = feed === 'program' ? 'Program' : 'Preview';
   const pill = (el, on, state, text, title) => {
-    el.className = `pill switch ${on ? state : 'idle'}`;
+    el.className = `pill switch small ${on ? state : 'idle'}`;
     el.setAttribute('aria-pressed', String(on));
     const t = el.querySelector('.text');
     if (t.textContent !== text) t.textContent = text;
     el.title = `${title}\nClick to turn it ${on ? 'off' : 'on'} (also the Output menu).`;
   };
+  const rx = (n) => `${n} ${n === 1 ? 'receiver' : 'receivers'}`;
   pill(
-    $('ndi'),
+    $(`${pre}-ndi`),
     o.ndi,
     !out.ndi ? 'off' : out.tally.program ? 'program' : out.tally.preview ? 'preview' : 'ok',
-    !o.ndi ? 'NDI off' : out.ndi ? `NDI · ${out.name} · ${out.connections} ${out.connections === 1 ? 'receiver' : 'receivers'}${out.tally.program ? ' · PROGRAM' : out.tally.preview ? ' · PREVIEW' : ''}` : `NDI · ${out.error}`,
-    !o.ndi ? 'NDI output: switched off.' : out.ndi ? `NDI output: ${out.name}` : `NDI output: not working: ${out.error}`,
+    !o.ndi || !out.ndi ? 'NDI' : `NDI · ${out.connections}`,
+    !o.ndi
+      ? `${Feed} feed, NDI: off. Its source: "${out.name}".`
+      : out.ndi
+        ? `${Feed} feed, NDI: ${out.name}, ${rx(out.connections)}${out.tally.program ? ', on a switcher’s program' : out.tally.preview ? ', on a switcher’s preview' : ''}.`
+        : `${Feed} feed, NDI: not working: ${out.error}`,
   );
   const dl = out.decklink;
   const trouble = !dl.on || !!dl.error || dl.late > 0 || dl.dropped > 0;
+  // (The port: as it's open, or as it's set: a number, a device's name (its port in brackets), or the first free one.)
+  const set = !dl.device || dl.device === 'auto' ? '' : (/\((\d+)\)\s*$/.exec(dl.device)?.[1] ?? dl.device);
+  const port = dl.on && dl.number ? String(dl.number) : set;
   pill(
-    $('sdi'),
+    $(`${pre}-sdi`),
     o.sdi,
     trouble ? 'off' : 'ok',
-    !o.sdi ? 'SDI off' : !dl.on ? `SDI · ${dl.error}` : dl.error ? `SDI · ${dl.name} · ${dl.error}` : `SDI · ${dl.name} · ${dl.mode}${dl.late || dl.dropped ? ` · ${dl.late + dl.dropped} late/s` : ''}`,
+    `SDI${port ? ` · ${port}` : ''}`,
     (!o.sdi
-      ? `SDI (DeckLink) output: switched off. It'll use ${dl.mode ?? 'the mode at this frame rate'}.`
+      ? `${Feed} feed, SDI (DeckLink): off. It'll use ${dl.mode ?? 'the mode at this frame rate'}.`
       : !dl.on
-        ? `SDI (DeckLink) output: not working: ${dl.error}`
-        : `SDI (DeckLink) output: ${dl.name}, ${dl.mode} · ${dl.buffered} buffered · per second: ${dl.late} late, ${dl.dropped} dropped, ${dl.repeats} repeated`) +
-      `\nPort: ${!dl.device || dl.device === 'auto' ? 'the first free one' : dl.device} (Output → SDI Port).`,
+        ? `${Feed} feed, SDI (DeckLink): not working: ${dl.error}`
+        : `${Feed} feed, SDI (DeckLink): ${dl.name}, ${dl.mode}${dl.error ? ` · ${dl.error}` : ''} · ${dl.buffered} buffered · per second: ${dl.late} late, ${dl.dropped} dropped, ${dl.repeats} repeated`) +
+      `\nPort: ${!dl.device || dl.device === 'auto' ? 'the first free one' : dl.device} (Output → ${Feed} → SDI Port).`,
   );
   // (Syphon: macOS only, so no switch elsewhere.)
   const sy = out.syphon;
-  $('syphon').hidden = !sy?.available;
+  $(`${pre}-syphon`).hidden = !sy?.available;
   if (sy?.available)
     pill(
-      $('syphon'),
+      $(`${pre}-syphon`),
       o.syphon,
       !sy.on ? 'off' : 'ok',
-      !o.syphon ? 'Syphon off' : !sy.on ? `Syphon · ${sy.error}` : `Syphon · ${sy.name} · ${sy.watched ? 'watched' : 'no app watching'}${sy.flip ? ' · flipped' : ''}`,
+      'Syphon',
       (!o.syphon
-        ? 'Syphon output (apps on this Mac: OBS, Resolume, QLab…): switched off.'
+        ? `${Feed} feed, Syphon (apps on this Mac: OBS, Resolume, QLab…): off. Its server: "${sy.name}".`
         : !sy.on
-          ? `Syphon output: not working: ${sy.error}`
-          : `Syphon output: "${sy.name}", for apps on this Mac (OBS, Resolume, QLab…). ${sy.watched ? 'An app is watching it.' : 'No app is watching it (it costs nothing until one does).'}`) +
+          ? `${Feed} feed, Syphon: not working: ${sy.error}`
+          : `${Feed} feed, Syphon: "${sy.name}". ${sy.watched ? 'An app is watching it.' : 'No app is watching it (it costs nothing until one does).'}${sy.flip ? ' Flipped.' : ''}`) +
         `\nUpside down in an app? Output → Flip Syphon Picture.`,
     );
+}
+
+/**
+ * No output on, of either feed: the header says so (in place of the rates, which count nothing
+ * then). Until an output has ever been on (the first start), the program's switches are outlined too.
+ */
+function showNoOutputs(s) {
+  const any = [s.output?.outputs, s.previewOutput?.outputs].some((o) => o && (o.ndi || o.sdi || o.syphon));
+  $('no-outputs').hidden = any;
+  $('rates').hidden = !any;
+  $('pg-ndi').parentElement.classList.toggle('guide', !any && !s.outputsSeen);
 }
 
 // ---- The two pages and what's on air --------------------------------------------------------------
@@ -195,9 +220,14 @@ function showPages(s) {
   const air = s.air.state;
   const [label, title] = AIR[air] ?? AIR.live;
   const tag = $('air-tag');
-  tag.className = `tag air ${air}`;
-  setText(tag, label);
-  tag.title = title;
+  // (On air only with an output of the program's on: otherwise the program goes nowhere, and the tag says so.)
+  const o = s.output?.outputs ?? {};
+  const out = !!(o.ndi || o.sdi || o.syphon);
+  tag.className = `tag air ${air}${out ? '' : ' off-air'}`;
+  setText(tag, out ? label : air === 'live' ? 'NOT ON AIR' : `${label} · NOT ON AIR`);
+  tag.title = out
+    ? title
+    : `Nothing of the program is going out: no NDI, SDI or Syphon output of the program is on. Turn one on with the switches at the right of this title, or in the Output menu.\n\n${title}`;
   $('pg-screen').classList.toggle('held-air', air !== 'live');
   // (Take: amber while the page taken is still loading.)
   $('take').classList.toggle('waiting', air === 'loading');
@@ -238,8 +268,10 @@ function showStatus(s) {
   if (!s || !s.air) return;
   status = s;
   showUpdate(s.update);
-  showOutputs(s.output);
+  showOutputs(s.output, 'pg', 'program');
+  showOutputs(s.previewOutput, 'pv', 'preview');
   showRates(s.output);
+  showNoOutputs(s);
   showPages(s);
   showFavorites(s.favorites, s.preview?.url, s.program?.url);
   showTabs(s.tabs, s.tabsWarn, s.closedTabs);
@@ -1016,9 +1048,20 @@ async function init() {
   onClick($('adblock'), () => command('look', { adblock: 'toggle' }));
   onClick($('annoyances'), () => command('look', { annoyances: 'toggle' }));
 
-  onClick($('ndi'), () => command('outputs', { ndi: 'toggle' }));
-  onClick($('sdi'), () => command('outputs', { sdi: 'toggle' }));
-  onClick($('syphon'), () => command('outputs', { syphon: 'toggle' }));
+  // (The header's No outputs on: the program's switches, shown for a moment.)
+  onClick($('no-outputs'), () => {
+    const outs = $('pg-ndi').parentElement;
+    outs.classList.remove('flash');
+    void outs.offsetWidth;
+    outs.classList.add('flash');
+    setTimeout(() => outs.classList.remove('flash'), 2400);
+  });
+  // (Each monitor's output switches: its feed's.)
+  for (const [pre, feed] of [
+    ['pg', 'program'],
+    ['pv', 'preview'],
+  ])
+    for (const k of ['ndi', 'sdi', 'syphon']) onClick($(`${pre}-${k}`), () => command('outputs', { feed, [k]: 'toggle' }));
 
   // The control API's address (where it listens: File → Control API → Listen On, which can move it).
   let urls = [];

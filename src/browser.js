@@ -131,9 +131,13 @@ export class Browser {
   setRole(role, { fps, muted } = {}) {
     const was = this.role;
     this.role = role;
-    this.fps = role === 'program' ? Math.ceil(Number(fps)) : role === 'preview' ? PREVIEW_FPS : TAB_FPS;
+    // (The preview: at the output's rate while it has an output of its own, graphic.js; otherwise
+    // only as fast as its monitor needs.)
+    this.fps = role === 'program' ? Math.ceil(Number(fps)) : role === 'preview' ? (fps ? Math.ceil(Number(fps)) : PREVIEW_FPS) : TAB_FPS;
     if (!this.alive()) return;
     this.wc.setFrameRate(this.fps);
+    // (A new role: a frame now, for whatever shows it now: its monitor, or the preview's output.)
+    if (was !== role) this.wc.invalidate();
     this.wc.setAudioMuted(role !== 'program' || !!muted);
     this.monitorEvery = 1;
     if (role === 'tab' && was !== 'tab') this.pauseMedia();

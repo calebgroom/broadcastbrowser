@@ -39,6 +39,10 @@ export const SETTINGS_TEMPLATE = {
   'decklink-mode': '',
   syphon: '',
   'syphon-flip': '',
+  'preview-ndi': '',
+  'preview-sdi': '',
+  'preview-syphon': '',
+  'preview-decklink': '',
   fps: '',
   name: '',
   port: '',
@@ -238,6 +242,16 @@ export function readConfig() {
     if (on !== undefined) outputs[k] = on;
   }
   if (process.platform !== 'darwin') outputs.syphon = false;
+  // The preview's own outputs (the preview feed: the page in the preview, as it is, for a producer
+  // to watch): off unless --preview-ndi, --preview-sdi or --preview-syphon says so. Its SDI port:
+  // --preview-decklink (the second port unless it says otherwise: the program's is the first free one).
+  const previewOutputs = { ndi: false, sdi: false, syphon: false };
+  for (const k of ['ndi', 'sdi', 'syphon']) {
+    const on = onOrOff(`preview-${k}`);
+    if (on !== undefined) previewOutputs[k] = on;
+  }
+  if (process.platform !== 'darwin') previewOutputs.syphon = false;
+  const previewDeck = String(arg('preview-decklink') ?? '').trim() || '2';
   const port = Number(arg('port') ?? DEFAULT_PORT);
   if (!Number.isInteger(port) || port < 0 || port > 65535) errors.push(`--port must be a port number (got ${arg('port')}); using ${DEFAULT_PORT}`);
   const tabsWarn = Number(arg('tabs-warn') ?? 8);
@@ -251,6 +265,9 @@ export function readConfig() {
     decklink: { device: deckOn ? deckArg : '', mode: deckMode },
     /** The outputs on at start-up: { ndi, sdi, syphon } (off unless a setting says so). */
     outputs,
+    /** The preview feed's outputs on at start-up, and its DeckLink port (the second, unless set). */
+    previewOutputs,
+    previewDecklink: { device: previewDeck, mode: deckMode },
     /** Syphon's picture turned upside down (--syphon-flip), for a client that shows it that way. */
     syphonFlip: arg('syphon-flip') !== null && arg('syphon-flip') !== '' && !isOff(arg('syphon-flip')),
     /**

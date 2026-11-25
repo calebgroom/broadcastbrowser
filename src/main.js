@@ -13,7 +13,7 @@ import { fileURLToPath } from 'node:url';
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, session, shell } from 'electron';
 import { Commands } from './commands.js';
 import { apiNetworks, ensureSettingsFile, fileSetting, FRAME_RATES, newApiToken, readConfig, resolveApiHost, saveSetting } from './config.js';
-import { deckLinkProblem, listDeckLinks } from './decklink.js';
+import { deckLinkProblem, findDeckLink, listDeckLinks } from './decklink.js';
 import { Favorites, normalizeUrl } from './favorites.js';
 import { BLANK, Graphic, PARTITION } from './graphic.js';
 import { startHttp } from './http.js';
@@ -92,8 +92,11 @@ async function main() {
     });
 
   let commands;
+  // The two feeds' outputs (src/ndi.js): the program (what's on air), and the preview (the page in
+  // the preview, as it is: for a producer to watch). Each its own NDI source and Syphon server
+  // ("Broadcast Browser Program", "… Preview") and its own SDI port, at the same format.
   const output = new Output({
-    name: config.name,
+    name: `${config.name} Program`,
     rate: FRAME_RATES[config.fps],
     outputs: config.outputs,
     decklink: config.decklink,
@@ -101,6 +104,16 @@ async function main() {
     // (A Syphon client has started watching: a frame for it now, not at the next change.)
     onWake: () => graphic.repaint(),
   });
+  const previewOutput = new Output({
+    name: `${config.name} Preview`,
+    rate: FRAME_RATES[config.fps],
+    outputs: config.previewOutputs,
+    decklink: config.previewDecklink,
+    syphon: { flip: config.syphonFlip },
+    onWake: () => graphic.repaintPreview(),
+  });
+  /** Whether the preview feed has an output on: the preview draws at the output's rate then. */
+  const previewHasOutput = () => Object.values(previewOutput.want).some(Boolean);
 
   // The tabs, for the next start (not too often): the settings file's "tabs": { tabs: [{ url,
   // zoom? }], program, preview }. (Not before they've been opened at start-up.)
@@ -145,6 +158,8 @@ async function main() {
     onFrame: (bgra) => output.frame(bgra),
     // (Every output off: frames aren't taken off the program; the monitors carry on.)
     wantFrames: () => output.wantsFrames(),
+    onPreviewFrame: (bgra) => previewOutput.frame(bgra),
+    wantPreviewFrames: () => previewOutput.wantsFrames(),
     onMonitor: (role, jpeg) => toOperator('monitor', { role, jpeg }),
     onProgram: (p) => toOperator('held', p),
     onThumb: (t) => toOperator('thumb', t),
@@ -169,7 +184,10 @@ async function main() {
   const installUpdate = async () => {
     const s = updater.status();
     if (s.state !== 'ready') return;
-    const on = Object.entries(output.want).filter(([, v]) => v).map(([k]) => k.toUpperCase());
+    const on = [
+      ...Object.entries(output.want).filter(([, v]) => v).map(([k]) => k.toUpperCase()),
+      ...Object.entries(previewOutput.want).filter(([, v]) => v).map(([k]) => `preview ${k.toUpperCase()}`),
+    ];
     if (on.length) {
       const r = await dialog.showMessageBox(operator, {
         type: 'warning',
@@ -208,6 +226,8 @@ async function main() {
   commands = new Commands({
     graphic,
     output,
+    previewOutput,
+    onPreviewOutput: () => graphic.setPreviewOutput(previewHasOutput()),
     updater,
     favorites,
     home: () => home,
@@ -238,6 +258,14 @@ async function main() {
   if (config.outputs.ndi && output.ndiError) commands.error(`NDI: ${output.ndiError}`);
   if (config.outputs.sdi && output.deckError) commands.error(`DeckLink: ${output.deckError}`);
   if (config.outputs.syphon && !output.syphon) commands.error(`Syphon: ${output.syphonError}`);
+  // (The preview's, after the program's: the program has its SDI port first.)
+  await previewOutput.start();
+  if (config.previewOutputs.ndi && previewOutput.ndiError) commands.error(`NDI (preview): ${previewOutput.ndiError}`);
+  if (config.previewOutputs.sdi && previewOutput.deckError) commands.error(`DeckLink (preview): ${previewOutput.deckError}`);
+  if (config.previewOutputs.syphon && !previewOutput.syphon) commands.error(`Syphon (preview): ${previewOutput.syphonError}`);
+  graphic.setPreviewOutput(previewHasOutput());
+  // (Started with an output on, by a setting: no first-start guide to the switches needed.)
+  commands.noteOutputsSeen();
   // (The menu's last DeckLink devices and port: refreshMenu's, below. Here: the control API's
   // timer can come before the menu is first made.)
   let lastDeck = null;
@@ -303,14 +331,8 @@ async function main() {
   graphic.start(tabs, programAt, previewAt);
   started = true;
 
-  // The menu bar: the page (its tabs, Cmd+1…9, and its favorites, Cmd+Option+1…9), what's on air, and the outputs (as the
-  // header's NDI, SDI and Syphon switches) and the SDI port.
-  const outputModes = [
-    ['both', 'NDI and SDI'],
-    ['ndi', 'NDI Only'],
-    ['sdi', 'SDI Only'],
-    ['off', 'Off'],
-  ];
+  // The menu bar: the page (its tabs, Cmd+1…9, and its favorites, Cmd+Option+1…9), what's on air, and the outputs of
+  // each feed, program and preview (as the switches by each monitor), with each one's SDI port.
   let menu = null;
   let menuKey = null;
   // A new token, at once: the old one stops working (Companion's buttons need the new one).
@@ -430,28 +452,48 @@ ${iconUrl ? `<img src="${iconUrl}" alt="">` : ''}
     win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(page)}`);
   };
   const run = (name, args) => commands.run(name, args).catch((e) => commands.error(e.message));
-  const portItems = (deck, dl) => {
+  /**
+   * A feed's SDI Port submenu: the first free port, or one of the devices. The other feed's port is
+   * shown as its, and can't be picked (one port carries one picture).
+   */
+  const portItems = (deck, dl, feed, other) => {
     const auto = !dl.device || dl.device === 'auto';
+    const otherFeed = feed === 'program' ? 'preview' : 'program';
+    // (The other feed's port: as it has it open, or as it's set.)
+    const otherSet = !other.device || other.device === 'auto' ? null : findDeckLink(deck.devices, other.device)?.name;
+    const theirs = (other.on && other.name) || otherSet;
     const items = [
-      { id: 'sdi-port-auto', label: 'First Free Port', type: 'radio', checked: auto, click: () => run('outputs', { device: 'auto' }) },
+      { id: `${feed}-sdi-port-auto`, label: 'First Free Port', type: 'radio', checked: auto, click: () => run('outputs', { feed, device: 'auto' }) },
       { type: 'separator' },
     ];
     if (!deck.devices.length) items.push({ label: deck.error ?? 'No DeckLink devices', enabled: false });
     for (const d of deck.devices) {
       const mine = dl.on ? dl.name : null;
       const problem = deckLinkProblem(d, dl.mode, mine);
+      const isTheirs = d.name === theirs;
       items.push({
-        id: `sdi-port-${d.number}`,
-        label: `${d.name}${mine === d.name ? ' (in use here)' : !d.active ? ' (inactive in the card’s profile)' : problem ? ` (${problem.replace(/^is |^has /, '').replace(/ \(.*\)$/, '')})` : ''}`,
+        id: `${feed}-sdi-port-${d.number}`,
+        label: `${d.name}${
+          mine === d.name
+            ? ' (in use here)'
+            : isTheirs
+              ? ` (the ${otherFeed}’s)`
+              : !d.active
+                ? ' (inactive in the card’s profile)'
+                : problem
+                  ? ` (${problem.replace(/^is |^has /, '').replace(/ \(.*\)$/, '')})`
+                  : ''
+        }`,
         type: 'radio',
-        checked: !auto && d.name === dl.device,
-        enabled: d.output && d.active,
-        click: () => run('outputs', { device: d.name }),
+        // (Set by name, or by number: the preview's port starts as 2.)
+        checked: !auto && (d.name === dl.device || String(d.number) === String(dl.device)),
+        enabled: d.output && d.active && !isTheirs,
+        click: () => run('outputs', { feed, device: d.name }),
       });
     }
     return items;
   };
-  const buildMenu = (deck, dl, favs, tabs) => {
+  const buildMenu = (deck, dl, favs, tabs, pdl = previewOutput.deckStatus()) => {
     menu = Menu.buildFromTemplate([
       ...(process.platform === 'darwin'
         ? [
@@ -636,16 +678,24 @@ ${iconUrl ? `<img src="${iconUrl}" alt="">` : ''}
       {
         label: 'Output',
         submenu: [
-          ...outputModes.map(([mode, label]) => ({ id: `output-${mode}`, label, type: 'radio', click: () => run('outputs', { mode }) })),
+          // Each feed's outputs, as the switches by its monitor: the program (on air) and the preview.
+          ...[
+            ['program', 'Program (On Air)', dl, pdl],
+            ['preview', 'Preview', pdl, dl],
+          ].flatMap(([feed, title, mine, other], i) => [
+            ...(i ? [{ type: 'separator' }] : []),
+            { label: title, enabled: false },
+            { id: `${feed}-ndi`, label: 'NDI', type: 'checkbox', click: () => run('outputs', { feed, ndi: 'toggle' }) },
+            { id: `${feed}-sdi`, label: 'SDI', type: 'checkbox', click: () => run('outputs', { feed, sdi: 'toggle' }) },
+            ...(process.platform === 'darwin'
+              ? [{ id: `${feed}-syphon`, label: 'Syphon (Apps on This Mac)', type: 'checkbox', click: () => run('outputs', { feed, syphon: 'toggle' }) }]
+              : []),
+            { label: 'SDI Port', submenu: portItems(deck, mine, feed, other) },
+          ]),
           { type: 'separator' },
-          { label: 'SDI Port', submenu: portItems(deck, dl) },
-          // (Syphon: apps on this Mac. Its own switch: the modes above leave it as it is.)
+          { label: 'All Outputs Off', click: () => Promise.all([run('outputs', { mode: 'off' }), run('outputs', { feed: 'preview', mode: 'off' })]) },
           ...(process.platform === 'darwin'
-            ? [
-                { type: 'separator' },
-                { id: 'output-syphon', label: 'Syphon (Apps on This Mac)', type: 'checkbox', click: () => run('outputs', { syphon: 'toggle' }) },
-                { id: 'output-syphon-flip', label: 'Flip Syphon Picture', type: 'checkbox', click: () => run('outputs', { flip: 'toggle' }) },
-              ]
+            ? [{ id: 'output-syphon-flip', label: 'Flip Syphon Picture', type: 'checkbox', click: () => run('outputs', { flip: 'toggle' }) }]
             : []),
           // (NDI's license: a link to ndi.video near where NDI is chosen.)
           { type: 'separator' },
@@ -696,6 +746,9 @@ ${iconUrl ? `<img src="${iconUrl}" alt="">` : ''}
       deck.devices.map((d) => [d.name, d.busy, d.active, d.output, !!d.format]),
       dl.device,
       dl.on && dl.name,
+      // (The preview's port, as the program's.)
+      previewOutput.deckConfig.device,
+      previewOutput.deck && previewOutput.deckName,
       favs.map((f) => [f.id, f.name]),
       tabs.slice(0, 9).map((t) => [t.id, (t.title || t.url).slice(0, 60), t.state]),
       !!apiToken,
@@ -714,15 +767,16 @@ ${iconUrl ? `<img src="${iconUrl}" alt="">` : ''}
     clearTimeout(tabsMenuTimer);
     tabsMenuTimer = setTimeout(() => lastDl && graphic.alive() && refreshMenu(lastDl, lastDeck), 300);
   };
-  const showOutputs = (o, sy) => {
-    const mode = o.ndi && o.sdi ? 'both' : o.ndi ? 'ndi' : o.sdi ? 'sdi' : 'off';
-    const item = menu.getMenuItemById(`output-${mode}`);
-    if (item && !item.checked) item.checked = true;
+  const showOutputs = (o, po, sy) => {
     const tick = (id, on) => {
       const i = menu.getMenuItemById(id);
       if (i && i.checked !== on) i.checked = on;
     };
-    tick('output-syphon', !!o.syphon);
+    for (const [feed, outs] of [
+      ['program', o],
+      ['preview', po],
+    ])
+      for (const k of ['ndi', 'sdi', 'syphon']) tick(`${feed}-${k}`, !!outs[k]);
     tick('output-syphon-flip', !!sy?.flip);
     tick('look-hold', !!graphic.look.hold);
     tick('look-auto', !!graphic.look.autoTake);
@@ -746,7 +800,7 @@ ${iconUrl ? `<img src="${iconUrl}" alt="">` : ''}
       lastPortCheck = Date.now();
       refreshMenu(s.output.decklink);
     }
-    showOutputs(s.output.outputs, s.output.syphon);
+    showOutputs(s.output.outputs, s.previewOutput.outputs, s.output.syphon);
     toOperator('status', s);
   }, 100);
 
@@ -762,6 +816,7 @@ ${iconUrl ? `<img src="${iconUrl}" alt="">` : ''}
     graphic.close();
     http.close();
     output.stop();
+    previewOutput.stop();
   };
   app.on('window-all-closed', () => app.quit());
   operator.on('close', shutdown);

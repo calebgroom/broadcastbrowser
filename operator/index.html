@@ -9,11 +9,10 @@
   <body>
     <header>
       <h1>Broadcast Browser</h1>
-      <!-- The outputs: each shows how it's doing, and turns it on or off (also the Output menu). -->
-      <button id="ndi" class="pill switch" aria-pressed="false"><span class="dot"></span><span class="text">NDI</span></button>
-      <button id="sdi" class="pill switch" aria-pressed="false"><span class="dot"></span><span class="text">SDI</span></button>
-      <button id="syphon" class="pill switch" aria-pressed="false" hidden><span class="dot"></span><span class="text">Syphon</span></button>
+      <!-- (The outputs' switches: by each monitor, for its feed.) The program feed's rates: -->
       <div id="rates" class="rates"></div>
+      <!-- No output on, of either feed: said here instead (click: the program's switches, shown). -->
+      <button id="no-outputs" class="no-outputs" hidden title="Nothing is going out: no NDI, SDI or Syphon output is on, for the program or the preview.&#10;Turn one on with the switches at the right of a monitor's title (the program's: what's on air), or in the Output menu.&#10;Click to see where.">No outputs on</button>
       <!-- An update: downloading, then ready (click: restart to install it; asked first if an output is on). -->
       <button id="update" class="update-pill" hidden></button>
       <a id="control" class="control" href="#" title="Control API, for Bitfocus Companion"></a>
@@ -74,6 +73,12 @@
               <span class="tag pv">PREVIEW</span>
               <span id="pv-title" class="mon-title"></span>
               <span id="pv-blocked" class="blocked" hidden></span>
+              <!-- The preview feed's outputs (the page in the preview, as it is): each shows how it's doing, and turns it on or off (also the Output menu). -->
+              <span class="outs" aria-label="Preview outputs">
+                <button id="pv-ndi" class="pill switch small" aria-pressed="false"><span class="dot"></span><span class="text">NDI</span></button>
+                <button id="pv-sdi" class="pill switch small" aria-pressed="false"><span class="dot"></span><span class="text">SDI</span></button>
+                <button id="pv-syphon" class="pill switch small" aria-pressed="false" hidden><span class="dot"></span><span class="text">Syphon</span></button>
+              </span>
             </div>
             <div class="screen" id="pv-screen" tabindex="-1">
               <canvas id="pv-canvas" width="960" height="540"></canvas>
@@ -98,6 +103,12 @@
               <span id="air-tag" class="tag air">ON AIR</span>
               <span id="pg-title" class="mon-title"></span>
               <span id="pg-blocked" class="blocked" hidden></span>
+              <!-- The program feed's outputs (what's on air). -->
+              <span class="outs" aria-label="Program outputs">
+                <button id="pg-ndi" class="pill switch small" aria-pressed="false"><span class="dot"></span><span class="text">NDI</span></button>
+                <button id="pg-sdi" class="pill switch small" aria-pressed="false"><span class="dot"></span><span class="text">SDI</span></button>
+                <button id="pg-syphon" class="pill switch small" aria-pressed="false" hidden><span class="dot"></span><span class="text">Syphon</span></button>
+              </span>
             </div>
             <div class="screen" id="pg-screen" tabindex="-1">
               <canvas id="pg-canvas" width="960" height="540"></canvas>
