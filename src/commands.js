@@ -65,7 +65,7 @@
 //   favorite-remove  { n|name|id }
 //   favorite-move    { n|name|id, to? | by? }   to a place (from 1), or up (-1) / down (1)
 
-import { nativeImage } from 'electron';
+import { app, nativeImage } from 'electron';
 import { fileSetting, OUTPUT_MODES, saveSetting } from './config.js';
 import { findDeckLink, listDeckLinks } from './decklink.js';
 import { normalizeUrl } from './favorites.js';
@@ -238,6 +238,8 @@ export class Commands {
 
   status() {
     return {
+      // (The app's version: for a client such as the Companion module to know what it can ask for.)
+      version: app.getVersion(),
       ...this.graphic.nav(),
       home: this.home(),
       favorites: this.favorites.list(),
@@ -287,13 +289,17 @@ export class Commands {
     switch (name) {
       case 'outputs':
         return this.setOutputs(a);
-      case 'go':
-        g.load(normalizeUrl(a.url), {
-          take: take(),
-          zoom: a.zoom !== undefined && a.zoom !== '' ? zoomFactor(a.zoom, 'go: zoom') : undefined,
-          newTab: onOff(a.newTab ?? a.newtab ?? a['new-tab'], 'go: newTab') === true,
-        });
+      case 'go': {
+        const url = normalizeUrl(a.url);
+        const zoom = a.zoom !== undefined && a.zoom !== '' ? zoomFactor(a.zoom, 'go: zoom') : undefined;
+        const newTab = onOff(a.newTab ?? a.newtab ?? a['new-tab'], 'go: newTab') === true;
+        // (A tab named, by n, id or match: the page goes into that one, wherever it is, even on air.)
+        if (g.picksTab(a)) {
+          if (newTab) throw new Error('go: newTab or a tab (n, id, match), not both');
+          g.loadIn(g.findTab(a, 'go'), url, { zoom, take: take() });
+        } else g.load(url, { take: take(), zoom, newTab });
         break;
+      }
       case 'home':
         g.openFavorite(this.home(), { take: take() });
         break;
@@ -322,7 +328,7 @@ export class Commands {
         g.openTab(a.url ? normalizeUrl(a.url) : BLANK, { take: a.url ? take() : false, placeholder: !a.url });
         break;
       case 'tab-close':
-        g.closeTab(a.n === undefined && a.id === undefined ? g.preview : g.findTab(a, 'tab-close'));
+        g.closeTab(g.picksTab(a) ? g.findTab(a, 'tab-close') : g.preview);
         break;
       case 'tab-reopen':
         g.reopenTab({ take: take() });

@@ -443,6 +443,25 @@ export class Graphic {
     this.o.onChange();
   }
 
+  /**
+   * A page into one tab, wherever it is (the API's /go with a tab): the preview's, as the address
+   * bar; one in the background, which stays there (its card's picture follows); or the one on air,
+   * which changes on air, held on the picture before while it loads if Hold While Loading is on (as
+   * a reload on air is). zoom: as load's.
+   */
+  loadIn(b, url, { zoom, take } = {}) {
+    if (b === this.preview) return this.load(url, { zoom, take });
+    if (!this.tabs.includes(b)) throw new Error('no such tab');
+    if (take) throw new Error(b === this.program ? 'that tab is on air already' : 'take is for the preview’s tab: bring this one in with /tab, then take it');
+    b.zoom = zoom ?? 1;
+    b.wantZoom = zoom ?? null;
+    b.go(url);
+    // (A new page: a new picture for its card, once it's settled.)
+    b.thumbAt = 0;
+    b.thumbSettled = false;
+    this.o.onChange();
+  }
+
   /** A favorite (or home): the tab already on that page into the preview, if there is one (not the one on air); a new tab otherwise. */
   openFavorite(url, { zoom, take } = {}) {
     // (Not a placeholder showing the same black page: Black opened on purpose is a tab of its own.)
@@ -483,6 +502,16 @@ export class Graphic {
     return img.resize({ width: Math.max(1, Math.round(w * scale)), height: Math.max(1, Math.round(h * scale)), quality: 'good' }).toPNG();
   }
 
+  /** Whether a (an API command's arguments) picks a tab: n, id or match. */
+  picksTab(a) {
+    return [a.n, a.id, a.match].some((v) => v !== undefined && v !== '');
+  }
+
+  /**
+   * A tab by { id }, { n } (from 1, in the tabs' order) or { match }: the first whose address or
+   * title has that text in it (any case), for an API button that keeps working however the tabs
+   * are moved.
+   */
   findTab(a, what = 'tab') {
     if (a.id !== undefined && a.id !== '') {
       const b = this.tabs.find((x) => x.id === String(a.id));
@@ -494,7 +523,13 @@ export class Graphic {
       if (!b) throw new Error(`${what}: there are ${this.tabs.length} tabs (got n=${a.n})`);
       return b;
     }
-    throw new Error(`${what} needs n or id`);
+    if (a.match !== undefined && a.match !== '') {
+      const want = String(a.match).toLowerCase();
+      const b = this.tabs.find((x) => x.alive() && (x.wc.getURL().toLowerCase().includes(want) || x.wc.getTitle().toLowerCase().includes(want)));
+      if (!b) throw new Error(`${what}: no tab with "${a.match}" in its address or title`);
+      return b;
+    }
+    throw new Error(`${what} needs n, id or match`);
   }
 
   /** The next (1) or previous (-1) tab into the preview, past the one on air, round the end. */

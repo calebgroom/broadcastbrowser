@@ -1,7 +1,7 @@
 {
   "name": "broadcast-browser",
   "private": true,
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Broadcast Browser: a web browser fixed at 1920×1080, driven from a control window and an HTTP API, out as NDI, SDI (Blackmagic DeckLink / UltraStudio) and/or Syphon.",
   "author": "Caleb Groom",
   "homepage": "https://github.com/calebgroom/broadcastbrowser",

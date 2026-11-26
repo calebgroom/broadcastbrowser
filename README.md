@@ -195,15 +195,16 @@ Pages load into the **preview**; `take=true` puts one on air once it's loaded (w
 
 | Request | |
 | --- | --- |
-| `/status` | What's on air (`air.state`: `live`, `loading`, `frozen` or `black`), the `preview` and `program` pages (address, title, loading, back/forward, error, zoom), the `tabs`, the look, home, the favorites, the outputs, recent messages |
+| `/status` | The app's `version`; what's on air (`air.state`: `live`, `loading`, `frozen` or `black`), the `preview` and `program` pages (address, title, loading, back/forward, error, zoom), the `tabs`, the look, home, the favorites, the outputs, recent messages |
 | `/frame.png` | The frame on air now, full size (also when no output is on) |
 | `/preview.png` | The preview's page as it is now, full size |
 | `/tab-picture?n=3&width=72&height=40` · `?id=…` | A tab's latest picture (its card's, new every few seconds: **thumbs**), as a PNG that fits in that size (8 to 640 pixels; 72 × 40 if left out). `404` until it has one. The Companion module's tab buttons show it |
 | `/go?url=example.com` · `&take=true` · `&zoom=150` · `&newTab=true` | The preview's tab to a page (as the address bar: words, `url=big%20ten%20standings`, are a Google search); on air once loaded; with a zoom; in a new tab instead |
+| `/go?url=…&match=example.com` · `&n=3` · `&id=…` | That tab to a page, wherever it is: one in the background loads it and stays there; the preview's, as above; **the one on air changes on air** (with Hold While Loading on, the picture before stays on air until the page has loaded). `match`: the first tab with that text in its address or title (any case), so a button keeps working however the tabs are moved. `take` only with the preview's tab |
 | `/favorite?n=2` · `/favorite?name=scores` · `/favorite?id=…` · `&take=true` | A favorite into the preview, in a new tab (or the tab already open on it): the nth, the one with that name (or with that in its name), or by id; on air once loaded |
 | `/home` · `/home?take=true` | Home, as a favorite |
 | `/tabs` | The tabs, in order: `[{ n, id, url, title, state, loading, error, picture }]`; `state`: `program`, `preview` or `open`; `picture`: its picture's version, a new number each time there's a new one (0: none yet) |
-| `/tab?n=3` · `/tab?id=…` · `&take=true` | A tab into the preview, just as it was (the one there goes to the background); on air (once loaded) |
+| `/tab?n=3` · `/tab?id=…` · `/tab?match=…` · `&take=true` | A tab into the preview, just as it was (the one there goes to the background); on air (once loaded). `match`, here and in `/tab-close`, `/tab-picture` and `/tab-move`: as `/go`'s |
 | `/tab-next` · `/tab-next?by=-1` | The next or previous tab into the preview (past the one on air) |
 | `/tab-new` · `/tab-new?url=…&take=true` | A new tab in the preview: blank, or with a page |
 | `/tab-close` · `/tab-close?n=3` | Close the preview's tab, or that one (not the one on air) |

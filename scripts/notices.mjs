@@ -82,10 +82,18 @@ const electronVersion = (() => {
 const packages = collect();
 const product = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
 
+// The first line, with the app's version (version: for the app's own copy) or without it (for
+// THIRD_PARTY_NOTICES.md, kept in the repo: unchanged by a new version, so a release doesn't edit it).
+// The year is the first year of publication, as copyright notices give it, not this year's.
+const FIRST_YEAR = 2026;
+const opening = (version) =>
+  `${product.productName}${version ? ` ${version}` : ''} is © ${FIRST_YEAR} Caleb Groom, under the MIT License (LICENSE).`;
+const OPENING = '\u0000opening\u0000';
+
 const md = [];
 md.push(`# Third-party notices
 
-${product.productName} ${product.version} is © ${new Date().getFullYear()} Caleb Groom, under the MIT License (LICENSE). It's built on, and ships with, the software below, each under its own license. (This file is made by \`pnpm run notices\` from what's installed: don't edit it by hand.)
+${OPENING} It's built on, and ships with, the software below, each under its own license. (This file is made by \`pnpm run notices\` from what's installed: don't edit it by hand.)
 
 ## Trademarks
 
@@ -130,8 +138,9 @@ ${p.text ? fence(p.text) : `(The package has no license file: it's under the ${p
 `);
 }
 
-writeFileSync(out, md.join('\n'));
-writeFileSync(join(root, 'THIRD_PARTY_NOTICES.html'), toHtml(md.join('\n'), `${product.productName}: Acknowledgements`));
+const text = md.join('\n');
+writeFileSync(out, text.replace(OPENING, opening()));
+writeFileSync(join(root, 'THIRD_PARTY_NOTICES.html'), toHtml(text.replace(OPENING, opening(product.version)), `${product.productName}: Acknowledgements`));
 console.log(`[notices] THIRD_PARTY_NOTICES.md and .html: ${packages.length} npm packages, and Electron, NDI, DeckLink, Syphon`);
 
 // The same, as a page for the app's Help → Acknowledgements window (most Macs have nothing that opens

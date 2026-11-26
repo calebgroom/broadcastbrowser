@@ -1,6 +1,6 @@
 # Third-party notices
 
-Broadcast Browser 0.1.0 is © 2026 Caleb Groom, under the MIT License (LICENSE). It's built on, and ships with, the software below, each under its own license. (This file is made by `pnpm run notices` from what's installed: don't edit it by hand.)
+Broadcast Browser is © 2026 Caleb Groom, under the MIT License (LICENSE). It's built on, and ships with, the software below, each under its own license. (This file is made by `pnpm run notices` from what's installed: don't edit it by hand.)
 
 ## Trademarks
 
