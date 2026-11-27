@@ -46,7 +46,9 @@ mac:
   category: public.app-category.video
   # (A 1024-px PNG: electron-builder makes the .icns from it.)
   icon: resources/icon.png
-  artifactName: ${productName}-${version}-${arch}.${ext}
+  # (A hyphen, not the product name's space: a file name with a space reaches GitHub with a dot
+  # instead, for the .blockmap files the updater looks for by the hyphenated name.)
+  artifactName: Broadcast-Browser-${version}-${arch}.${ext}
   target:
     - dmg
     - zip

@@ -212,6 +212,6 @@ try {
   }
 }
 const { version } = require(join(root, 'package.json'));
-say(`done: ${platform === 'mac' ? archs.map((a) => `release/Broadcast Browser-${version}-${a}.dmg`).join(', ') + ' (and .zip)' : 'release/'}`);
+say(`done: ${platform === 'mac' ? archs.map((a) => `release/Broadcast-Browser-${version}-${a}.dmg`).join(', ') + ' (and .zip)' : 'release/'}`);
 if (release)
   say(`uploaded to a draft release, v${version}: check it, then Publish release at https://github.com/calebgroom/broadcastbrowser/releases (the apps find it once it's published)`);
