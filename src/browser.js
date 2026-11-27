@@ -16,8 +16,8 @@ import { BrowserWindow } from 'electron';
 import { localFileProblem } from './favorites.js';
 import { HEIGHT, WIDTH } from './ndi.js';
 
-/** A monitor's width in the control window (px). */
-const MONITOR_WIDTH = 960;
+/** A monitor's width in the control window (px): its picture's, unless a pop-out wants it bigger. */
+export const MONITOR_WIDTH = 960;
 /**
  * A monitor gets every frame while copying the frame (for the output) and making the monitor's
  * JPEG take no more than this share of a frame's time on the app's main thread; otherwise every
@@ -26,6 +26,8 @@ const MONITOR_WIDTH = 960;
  */
 const MONITOR_BUDGET = { program: 0.35, preview: 0.2, tab: 0.05 };
 const MONITOR_MAX_EVERY = 4;
+/** The most text pasted into a page at once (characters). */
+const MAX_PASTE = 100_000;
 /** The preview draws at most this many frames a second (it isn't on air: half the work). */
 export const PREVIEW_FPS = 30;
 /** A tab in the background: a frame a second, for its thumbnail. */
@@ -69,6 +71,8 @@ export class Browser {
      * page (the Black favorite is a tab like any other).
      */
     this.placeholder = false;
+    /** The tab's own home: the first page it was given (not a placeholder), for Home in a pop-out window. */
+    this.homeUrl = null;
     /** Where to scroll to once the page has loaded (a closed tab, opened again). */
     this.restoreScroll = null;
     /** Its media was paused when it went to the background (to play again when it comes back). */
@@ -133,7 +137,8 @@ export class Browser {
     this.role = role;
     // (The preview: at the output's rate while it has an output of its own, graphic.js; otherwise
     // only as fast as its monitor needs.)
-    this.fps = role === 'program' ? Math.ceil(Number(fps)) : role === 'preview' ? (fps ? Math.ceil(Number(fps)) : PREVIEW_FPS) : TAB_FPS;
+    // (A tab in the background: slowly, unless a pop-out window shows it.)
+    this.fps = role === 'program' ? Math.ceil(Number(fps)) : role === 'preview' ? (fps ? Math.ceil(Number(fps)) : PREVIEW_FPS) : this.popped ? PREVIEW_FPS : TAB_FPS;
     if (!this.alive()) return;
     this.wc.setFrameRate(this.fps);
     // (A new role: a frame now, for whatever shows it now: its monitor, or the preview's output.)
@@ -142,6 +147,55 @@ export class Browser {
     this.monitorEvery = 1;
     if (role === 'tab' && was !== 'tab') this.pauseMedia();
     if (role !== 'tab' && was === 'tab') this.resumeMedia();
+    // (On air: no find highlights, which would go out with the page.)
+    if (role === 'program') this.stopFind();
+  }
+
+  /**
+   * Shown in a pop-out window (graphic.js): a tab in the background draws, and sends its pictures,
+   * as the preview does, while it is.
+   */
+  setPopped(on) {
+    this.popped = !!on;
+    if (this.role === 'tab' && this.alive()) {
+      this.fps = this.popped ? PREVIEW_FPS : TAB_FPS;
+      this.wc.setFrameRate(this.fps);
+      this.monitorEvery = 1;
+    }
+  }
+
+  /**
+   * Find on the page: text, from the start or the next (or previous, forward false) after the last
+   * find. Resolves to { matches, active } once Chromium has counted them.
+   */
+  find(text, { forward = true, next = false } = {}) {
+    if (!this.alive()) throw new Error('find: no page');
+    text = String(text ?? '');
+    if (!text) {
+      this.stopFind();
+      return { matches: 0, active: 0 };
+    }
+    this.finding = true;
+    return new Promise((resolve) => {
+      const id = this.wc.findInPage(text, { forward, findNext: !next });
+      const done = (_e, r) => {
+        if (r.requestId !== id || !r.finalUpdate) return;
+        clearTimeout(timer);
+        this.wc.off('found-in-page', done);
+        resolve({ matches: r.matches, active: r.activeMatchOrdinal });
+      };
+      const timer = setTimeout(() => {
+        this.wc.off('found-in-page', done);
+        resolve({ matches: 0, active: 0 });
+      }, 2000);
+      this.wc.on('found-in-page', done);
+    });
+  }
+
+  /** The find over: its highlights gone. */
+  stopFind() {
+    if (this.finding && this.alive()) this.wc.stopFindInPage('clearSelection');
+    this.finding = false;
   }
 
   /** The page's frames: to graphic.js (the output), and to the control window's monitor. */
@@ -161,7 +215,12 @@ export class Browser {
     // on the page as it is.)
     let skipped = null;
     let warned = false;
-    const monitor = (img) => this.o.onMonitor(this, img.resize({ width: MONITOR_WIDTH, quality: 'good' }).toJPEG(80));
+    // (The picture's width: the control window's monitor's, or bigger for a pop-out window: graphic.js.
+    // Full size, the page's own frame as it is, with no resizing.)
+    const monitor = (img) => {
+      const w = this.o.monitorWidth?.(this) ?? MONITOR_WIDTH;
+      this.o.onMonitor(this, (w >= WIDTH ? img : img.resize({ width: w, quality: 'good' })).toJPEG(80));
+    };
     this.on('paint', (_e, _dirty, image) => {
       const t0 = performance.now();
       let img = image;
@@ -179,8 +238,9 @@ export class Browser {
       this.o.onPaint(this, img);
       const t1 = performance.now();
       outMs += (t1 - t0 - outMs) * 0.1;
-      // (In the background: no monitor, only the thumbnail graphic.js makes from the frame.)
-      if (this.role === 'tab') return;
+      // (In the background: no monitor, only the thumbnail graphic.js makes from the frame; unless a
+      // pop-out window shows it.)
+      if (this.role === 'tab' && !this.o.popped?.(this)) return;
       clearTimeout(this.skippedTimer);
       const frameMs = 1000 / this.fps;
       if (++sinceMonitor < this.monitorEvery) {
@@ -194,7 +254,7 @@ export class Browser {
         sinceMonitor = 0;
         monitor(img);
         monitorMs += (performance.now() - t1 - monitorMs) * 0.1;
-        const budget = frameMs * MONITOR_BUDGET[this.role];
+        const budget = frameMs * MONITOR_BUDGET[this.role === 'tab' ? 'preview' : this.role];
         this.monitorEvery = outMs + monitorMs <= budget ? 1 : Math.min(MONITOR_MAX_EVERY, Math.ceil(monitorMs / Math.max(0.5, budget - outMs)));
       }
       spent += performance.now() - t0;
@@ -311,7 +371,9 @@ export class Browser {
    * how it's going (loading, error). scrollY: where to scroll to once it has. placeholder: an empty
    * tab (see above); any other page makes it a tab like any other.
    */
-  go(url, { scrollY = null, placeholder = false } = {}) {
+  go(url, { scrollY = null, placeholder = false, home = null } = {}) {
+    // (Its first page: the tab's home. Or the home it had, given back to a tab reopened or restored.)
+    const first = !this.homeUrl || this.isBlank();
     this.starting();
     this.touched = false;
     this.placeholder = placeholder;
@@ -322,7 +384,18 @@ export class Browser {
       this.o.onError(`${this.role}: ${problem}`);
       url = 'about:blank';
     }
+    if (!placeholder) {
+      if (home && !localFileProblem(home)) this.homeUrl = home;
+      else if (first) this.homeUrl = url;
+    }
     this.wc.loadURL(url).catch(() => {});
+  }
+
+  /** Back to the tab's home: the page it started on (a new step in its history, as a link is). */
+  goHome() {
+    if (!this.homeUrl) throw new Error(`tab-home: the ${this.role}'s tab hasn't had a page yet`);
+    this.go(this.homeUrl);
+    this.touched = true;
   }
 
   /** Into the background: the page's video and sound paused (and which were playing remembered). */
@@ -397,9 +470,10 @@ export class Browser {
   }
 
   /**
-   * Mouse and keyboard from the control window's monitor, into the page: { type: 'click' | 'move' |
-   * 'down' | 'up' | 'wheel' | 'key', x, y (in the page's 1920×1080), button, clickCount, dx, dy, key,
-   * text, modifiers }.
+   * Mouse and keyboard from the control window's monitor (or a pop-out window), into the page:
+   * { type: 'click' | 'move' | 'down' | 'up' | 'wheel' | 'key' | 'paste' | 'copy' | 'cut' | 'selectAll',
+   * x, y (in the page's 1920×1080), button, clickCount, dx, dy, key, text, modifiers }. paste: text,
+   * the clipboard's (the window's Edit → Paste, Cmd+V), typed into the page's focused field.
    */
   input(e) {
     const wc = this.wc;
@@ -433,6 +507,22 @@ export class Browser {
         if (e.text) wc.sendInputEvent({ type: 'char', keyCode: String(e.text), modifiers });
         return wc.sendInputEvent({ type: 'keyUp', keyCode, modifiers });
       }
+      // (The window's Edit menu, while interacting: the clipboard's text into the page, as typed, so a
+      // password field takes it too; and copy, cut and select all in the page itself.)
+      case 'paste': {
+        const text = String(e.text ?? '');
+        if (!text) return;
+        if (text.length > MAX_PASTE) throw new Error(`paste: ${text.length} characters is more than the ${MAX_PASTE} pasted at once`);
+        wc.focus();
+        return wc.insertText(text);
+      }
+      case 'copy':
+      case 'cut':
+        wc.focus();
+        return e.type === 'copy' ? wc.copy() : wc.cut();
+      case 'selectAll':
+        wc.focus();
+        return wc.selectAll();
       default:
         throw new Error(`input: no type "${e.type}"`);
     }
@@ -456,6 +546,9 @@ export class Browser {
       loading: this.loading,
       canGoBack: h.canGoBack(),
       canGoForward: h.canGoForward(),
+      // (The tab's home, and whether it's there now: trailing slashes aside.)
+      home: this.homeUrl,
+      atHome: !!this.homeUrl && wc.getURL().replace(/\/$/, '') === this.homeUrl.replace(/\/$/, ''),
       error: this.loadError,
       zoom: Math.round(this.zoomNow() * 100) / 100,
       id: this.id,

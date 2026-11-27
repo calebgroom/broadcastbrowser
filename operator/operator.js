@@ -17,10 +17,9 @@
 // the status that comes back.
 
 const $ = (id) => document.getElementById(id);
-const api = window.playout;
+import { wireInteractOn } from './interact.js';
 
-const PAGE_W = 1920;
-const PAGE_H = 1080;
+const api = window.playout;
 
 let status = null;
 
@@ -217,6 +216,11 @@ function showPages(s) {
   }
   showMonitor('pv', pv, 'preview');
   showMonitor('pg', pg, 'program');
+  // (A monitor's pop-out button, lit while its window is open.)
+  const popped = new Set(s.popouts ?? []);
+  for (const r of ['preview', 'program']) document.querySelector(`.monitor[data-role="${r}"] .popout`)?.setAttribute('aria-pressed', String(popped.has(r)));
+  // (A tab's card: its ⧉ lit while its own pop-out window is open.)
+  for (const b of $('tabs').querySelectorAll('.card .pop')) b.setAttribute('aria-pressed', String(popped.has(b.closest('.card').dataset.id)));
   const air = s.air.state;
   const [label, title] = AIR[air] ?? AIR.live;
   const tag = $('air-tag');
@@ -400,7 +404,13 @@ function showTabs(list = [], warnAt = 0, closed = 0) {
       x.dataset.act = 'close';
       x.textContent = '×';
       x.title = t.state === 'preview' ? 'Close this tab (Cmd+W)' : 'Close this tab';
-      li.append(th, name, u, st, x);
+      const pop = document.createElement('button');
+      pop.className = 'pop';
+      pop.dataset.act = 'popout';
+      pop.textContent = '⧉';
+      pop.title = 'Pop out this tab: its page in a window of its own, wherever the tab is (in the background, it stays there)';
+      pop.setAttribute('aria-pressed', String((status?.popouts ?? []).includes(t.id)));
+      li.append(th, name, u, st, pop, x);
       return li;
     }),
   );
@@ -414,6 +424,7 @@ function wireTabs() {
     if (!card) return;
     e.preventDefault();
     if (e.target.closest('[data-act="close"]')) return command('tab-close', { id: card.dataset.id });
+    if (e.target.closest('[data-act="popout"]')) return api.popout(card.dataset.id);
     if (card.classList.contains('program')) return;
     command('tab', { id: card.dataset.id, ...(e.shiftKey ? { take: true } : {}) });
   });
@@ -681,25 +692,6 @@ function startMonitors() {
 
 // ---- Interact: a monitor is its page -------------------------------------------------------------
 
-/** DOM key names → Electron's (sendInputEvent's keyCode). */
-const KEYS = {
-  ArrowUp: 'Up',
-  ArrowDown: 'Down',
-  ArrowLeft: 'Left',
-  ArrowRight: 'Right',
-  ' ': 'Space',
-  Escape: 'Escape',
-  Enter: 'Enter',
-  Backspace: 'Backspace',
-  Tab: 'Tab',
-  Delete: 'Delete',
-  Home: 'Home',
-  End: 'End',
-  PageUp: 'PageUp',
-  PageDown: 'PageDown',
-};
-const BUTTONS = ['left', 'middle', 'right'];
-
 let interacting = false;
 function setInteract(on) {
   interacting = on;
@@ -711,66 +703,14 @@ function setInteract(on) {
   if (on) $('pv-screen').focus();
 }
 
+/** A monitor's picture, clicked, scrolled and typed into while Interact is on: operator/interact.js. */
 function wireInteract(screenId, canvasId, target) {
-  const screen = $(screenId);
-  const canvas = $(canvasId);
-  const at = (e) => {
-    const r = canvas.getBoundingClientRect();
-    return { x: ((e.clientX - r.left) / r.width) * PAGE_W, y: ((e.clientY - r.top) / r.height) * PAGE_H };
-  };
-  const mods = (e) => [e.shiftKey && 'shift', e.ctrlKey && 'control', e.altKey && 'alt', e.metaKey && 'meta'].filter(Boolean);
-  const send = (args) => api.command('input', { target, ...args }).then((r) => !r.ok && addLocalError(r.error));
-  canvas.addEventListener('mousedown', (e) => {
-    if (!interacting) return;
-    e.preventDefault();
-    screen.focus();
-    send({ type: 'down', ...at(e), button: BUTTONS[e.button] ?? 'left', clickCount: e.detail || 1, modifiers: mods(e) });
-  });
-  canvas.addEventListener('mouseup', (e) => {
-    if (!interacting) return;
-    send({ type: 'up', ...at(e), button: BUTTONS[e.button] ?? 'left', clickCount: e.detail || 1, modifiers: mods(e) });
-  });
-  canvas.addEventListener('contextmenu', (e) => interacting && e.preventDefault());
-  // (Moves: one per frame at most, for hover menus.)
-  let move = null;
-  canvas.addEventListener('mousemove', (e) => {
-    if (!interacting) return;
-    const pending = move;
-    move = { type: 'move', ...at(e), modifiers: mods(e) };
-    if (!pending)
-      requestAnimationFrame(() => {
-        if (move) send(move);
-        move = null;
-      });
-  });
-  canvas.addEventListener(
-    'wheel',
-    (e) => {
-      if (!interacting) return;
-      e.preventDefault();
-      const k = e.deltaMode === 1 ? 40 : e.deltaMode === 2 ? PAGE_H : 1;
-      send({ type: 'wheel', ...at(e), dx: e.deltaX * k, dy: e.deltaY * k, modifiers: mods(e) });
-    },
-    { passive: false },
-  );
-  let lastEsc = 0;
-  screen.addEventListener('keydown', (e) => {
-    // (Cmd shortcuts stay the app's: the menus.)
-    if (!interacting || e.metaKey) return;
-    // (Esc twice: stop interacting. Once: Esc for the page.)
-    if (e.key === 'Escape') {
-      if (Date.now() - lastEsc < 600) {
-        e.preventDefault();
-        return setInteract(false);
-      }
-      lastEsc = Date.now();
-    }
-    const key = KEYS[e.key] ?? (e.key.length === 1 ? e.key : null);
-    if (!key) return;
-    e.preventDefault();
-    e.stopPropagation();
-    const text = e.key.length === 1 && !e.ctrlKey ? e.key : e.key === 'Enter' ? '\r' : undefined;
-    send({ type: 'key', key, text, modifiers: mods(e) });
+  wireInteractOn({
+    screen: $(screenId),
+    canvas: $(canvasId),
+    isOn: () => interacting,
+    onStop: () => setInteract(false),
+    send: (args) => api.command('input', { target, ...args }).then((r) => !r.ok && addLocalError(r.error)),
   });
 }
 
@@ -851,6 +791,7 @@ function wireMonitorTools() {
         'zoom-reset': () => command('zoom', { target, reset: true }),
         reload: () => command('reload', { target, hard: e.shiftKey }),
         ads: () => command('adblock-allow', { target }),
+        popout: () => api.popout(target),
       };
       acts[b.dataset.act]?.();
     });

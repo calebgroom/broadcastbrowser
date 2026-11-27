@@ -1,4 +1,5 @@
-// The control window's bridge to the app (main.js): commands, status, the two monitors' pictures and the picture held on air.
+// The control window's bridge to the app (main.js), and the pop-out windows': commands, status, the two
+// monitors' pictures and the picture held on air.
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('playout', {
@@ -13,4 +14,6 @@ contextBridge.exposeInMainWorld('playout', {
   onHeld: (fn) => ipcRenderer.on('held', (_e, p) => fn(p)),
   onThumb: (fn) => ipcRenderer.on('thumb', (_e, t) => fn(t)),
   onFocusUrl: (fn) => ipcRenderer.on('focus-url', () => fn()),
+  popout: (key) => ipcRenderer.invoke('popout', key),
+  onFind: (fn) => ipcRenderer.on('find', () => fn()),
 });

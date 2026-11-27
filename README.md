@@ -143,11 +143,20 @@ The first time there are two: **Test Pattern** (`app://pages/test.html`: colour 
 | **Freeze**, **Black** | What's on air (above) |
 | **Auto take** | Every page loaded goes on air once it's loaded |
 | **Hold while loading** | Above. On by default |
-| **Interact** | The monitors are their pages: click, scroll and type into either. Esc twice (or Interact again) to stop. Cmd shortcuts stay the app's. What you do in the program's is on air, unless it's frozen |
+| **Interact** | The monitors are their pages: click, scroll and type into either. **Paste** (Cmd+V) types the clipboard's text into the page's field (a login's password, say); Copy, Cut and Select All (Cmd+C, X, A) are the page's too. Esc twice (or Interact again) to stop. Other Cmd shortcuts stay the app's. What you do in the program's is on air, unless it's frozen. The same in a pop-out window |
 | **Scrollbars** | Off by default: nothing on air the audience doesn't need |
 | **Muted** | The sound of the page on air |
 
 Problems appear under **Messages**, which opens by itself when there's a new one. The NDI, SDI and Syphon switches by each monitor turn that feed's outputs on and off, and show how they're doing. A grey dot: off. Green: working (**NDI · 2**: two receivers; **SDI · 2**: going out of port 2). Amber: on, but not working (hover to see why). **NDI** turns red while a switcher has that source on program. Hover over any of them for the detail.
+
+**Pop-out windows.** The monitors are small for working on a page: **View → Pop Out Preview** (Option+Cmd+P) or **Pop Out Program** (Option+Cmd+O), or ⧉ at the end of a monitor's tools, opens that feed's page in a window of its own, as big as you like (it keeps to 16:9). **⧉ on a tab's card** pops out that tab, wherever it is: one in the background stays there (and draws, while its window is open), so you can sign in to a site or find your place on a page without touching the preview. The page itself doesn't change: it's still 1920×1080, and what goes out is the same; the window just shows it bigger and sharper, up to full size, and you click, scroll, type, paste and zoom there as on a monitor.
+
+- **Its title row**: where the page is (**PREVIEW**, **ON AIR** or **TAB 3**), **←** **→** and **⌂** (back to the page the tab started on, not the app's Home), its address bar (type an address, or words to search, and press Return; Esc puts it back), Interact, scrolling, zoom and reload. A thin bar along the top of the picture while the page loads, and why, if it couldn't.
+- **The bar below**: what's on air, and **Take** (the preview's window: the preview on air; a tab's: that tab on air); a tab in the background has **To Preview** too. In the program's window: how it's going out (frozen, held while loading, black, or not going out at all).
+- **With a pop-out window in front, the page shortcuts are its page's**: Cmd+L (its address bar), Cmd+R, Cmd+[ and Cmd+], Cmd+Shift+H (its tab's first page), Cmd+= / Cmd+- / Cmd+0, Cmd+D (its page to the favorites), Cmd+F, and Cmd+W closes the window, not a tab.
+- **Find (Cmd+F)**: a find bar over the page, with how many matches; Return for the next, Shift+Return the previous, Esc to close. Not on the page on air, whose highlights would go out with it (they're cleared if the page is taken while you're finding). Cmd+F in the control window pops out the preview with the find bar open.
+- **On air**: Interact is on from the start in the preview's window and a background tab's; in the program's (or a tab's window while its tab is on air), it's off until you turn it on, since what you do there is on air. What's typed in the program window's address bar goes on air (held until it has loaded, with Hold While Loading on).
+- The feeds' windows follow them: after a take, the preview's window shows the new preview. A tab's window follows its tab, and closes with it. Each window opens where it was last time, and **the windows open when the app quits open again at the next start** (a tab's, with its tab). ⧉ on a monitor or a card is lit while its window is open.
 
 The pages run in a browser session of their own (shared by every tab): cookies and logins are kept between starts (see "Sign-ins"). They see Chrome's user agent. A page's pop-ups and links to a new window open in the same tab; `alert()`, `confirm()` and `prompt()` are answered without showing anything; a page can't ask "leave this page?"; camera, microphone, location and notifications are refused. A video page plays without a click. **View → Preview Developer Tools** and **Program Developer Tools** open Chrome's tools on either page.
 
@@ -165,10 +174,12 @@ The **Tabs** menu: **New Tab** (Cmd+T), **Close the Preview's Tab** (Cmd+W), **R
 | Cmd+Return | Take (Cmd+Shift+Return: Take Now, not waiting for the page to load) |
 | Cmd+Shift+F · Cmd+B | Freeze · Black |
 | Cmd+L | The address bar (Shift+Enter there: on air) |
-| Cmd+T · Cmd+W · Cmd+Shift+T | New tab · close the preview's tab · reopen the tab closed last |
+| Cmd+T · Cmd+W · Cmd+Shift+T | New tab · close the preview's tab (in a pop-out window: close the window) · reopen the tab closed last |
+| Cmd+F | Find on the page, in a pop-out window (from the control window: the preview's, popped out) |
 | Cmd+[ · Cmd+] · Cmd+R · Cmd+Shift+H | The preview's Back · Forward · Reload · Home |
 | Cmd+= · Cmd+- · Cmd+0 | The preview's zoom |
 | Cmd+D | Add the preview's page to the favorites |
+| Option+Cmd+P · Option+Cmd+O | Pop out the preview · the program (a window of its own) |
 | Page Up / Down, ↑ ↓ | Scroll the page on air (with Option: the preview's) |
 
 ## Control API (for Companion)
@@ -214,6 +225,8 @@ Pages load into the **preview**; `take=true` puts one on air once it's loaded (w
 | `/live` | The program's page on air as it is: not held, frozen or black |
 | `/freeze` · `/freeze?on=true` · `/black` · `/black?on=false` | What's on air (without `on`: the other way) |
 | `/back` · `/forward` · `/reload` · `/reload?hard=true` · `/stop` | The preview's page; `&target=program` for the page on air (a reload on air is held till it's loaded) |
+| `/tab-home` · `&target=program` | The preview's tab back to the page it started on (its first page, kept across restarts; `status.preview.home`) |
+| `/find?text=…` · `&next=true` · `&forward=false` · `/find-stop` | Find on the preview's page (`target`: a tab's id): `{ matches, active }`. Not on the page on air (its highlights would go out). A pop-out window's Cmd+F |
 | `/scroll?screens=1` · `/scroll?by=-300` · `/top` | Scroll the preview's page (`&target=program`: the page on air; `&smooth=false` to jump) |
 | `/zoom?by=1` · `/zoom?factor=150` · `/zoom?reset=true` | The preview's zoom (`&target=program`: on air). Refused for the preview when it's the same site as on air (see "Zoom and sites") |
 | `/look?autoTake=toggle` · `/look?hold=toggle` · `/look?muted=false` · `/look?scrollbars=true` | Auto take, hold while loading, sound on air, scrollbars: each `true`, `false` or `toggle` |
@@ -229,6 +242,8 @@ Pages load into the **preview**; `take=true` puts one on air once it's loaded (w
 | `/outputs?mode=both` · `/outputs?ndi=toggle` · `/outputs?sdi=false` · `/outputs?device=3` · `&feed=preview` | A feed's video outputs: the program's (or with `feed=preview`, the preview's). `mode` `both` (NDI and SDI), `ndi`, `sdi` or `off` (everything off, Syphon too); or each of `ndi`, `sdi`, `syphon` on its own (`true`, `false` or `toggle`); `device`: its SDI port (`auto`, a number from 1, or part of a device's name; never the other feed's). `status.output` is the program's, `status.previewOutput` the preview's |
 | `/outputs?syphon=toggle` · `/outputs?flip=toggle` | Syphon on or off; its picture flipped or not |
 | `/update-check` | Look for a new version now (`status.update`: `state` idle, checking, downloading, ready, none, error or dev; `version`, `percent`). It's installed from the control window (or as the app quits), never from the API |
+
+The page commands (`/back`, `/reload`, `/zoom`, `/scroll`, `/tab-home`, `/find`…) take `target=preview` (the default), `program`, or a tab's id (`/tabs`), for a tab in the background.
 
 For a Stream Deck: one button per favorite (`/favorite?n=…`) and a TAKE button (`/take`) is the preview/program way (a favorite's button brings back its tab, if it's open, so pressing it twice doesn't open it twice); `/favorite?n=…&take=true` buttons go straight to air; `/tab-next` and `/tab-next?by=-1` step through the open tabs. `status.air.state`, `status.program.url` and `status.tabs` tell a button whether its page is on air or open.
 
@@ -372,6 +387,7 @@ Each Mac updates to its own: an Apple Silicon Mac to the Apple Silicon app (the 
 - `resources/`: the icon and the installer's background ("The icon", above).
 - `src/adblock.js` is ad blocking: the filter engines (kept in the app's folder), the session's request hooks, the allow list and the counts.
 - `src/updater.js` is updating (electron-updater).
+- `operator/` is the control window (`index.html`, `operator.js`) and the pop-out windows (`popout.html`, `popout.js`); `interact.js` is the mouse and keyboard into a page, for both.
 - `src/site.js` serves `app://operator/` (the control window, `operator/`) and `app://pages/` (`pages/`: `black.html` and `test.html`).
 - `src/ndi.js` sends the program's frames to the outputs (NDI itself, and SDI and Syphon through `src/decklink.js` and `src/syphon.js`, with their native addons in `decklink/` and `syphon/`).
 

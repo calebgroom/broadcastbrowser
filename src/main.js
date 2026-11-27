@@ -10,7 +10,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, session, shell } from 'electron';
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, screen, session, shell } from 'electron';
 import { Commands } from './commands.js';
 import { apiNetworks, ensureSettingsFile, fileSetting, FRAME_RATES, newApiToken, readConfig, resolveApiHost, saveSetting } from './config.js';
 import { deckLinkProblem, findDeckLink, listDeckLinks } from './decklink.js';
@@ -74,13 +74,31 @@ async function main() {
   const toOperator = (channel, data) => {
     if (!operator.isDestroyed()) operator.webContents.send(channel, data);
   };
+  /**
+   * The pop-out windows (View → Pop Out…, ⧉ on a monitor or a tab's card), by what each shows:
+   * 'preview' or 'program' (whichever page is that feed's), or a tab's id (that tab, wherever it is). Below.
+   */
+  const popouts = new Map();
+  const toPopout = (key, channel, data) => {
+    const win = popouts.get(key);
+    if (win && !win.isDestroyed()) win.webContents.send(channel, data);
+  };
+  /** What a window shows, if it's a pop-out window: its key. */
+  const popoutKeyOf = (win) => {
+    for (const [key, w] of popouts) if (w === win) return key;
+    return null;
+  };
+  /** The app quitting: pop-out windows closing then aren't forgotten (they open again at the next start). */
+  let quitting = false;
+  /** The control window, or a pop-out window: the app's own pages, app://operator/, in their top frame. */
+  const appWindows = () => [operator, ...popouts.values()].filter((w) => w && !w.isDestroyed());
   // The control window's messages to the app: taken only from the control window itself (its own
   // page, app://operator/, in its top frame). Web pages run in processes of their own, but one that
   // broke out of its sandbox could otherwise send these too, and drive the app with no API token.
   // (The control API, for Companion and the like, is src/http.js: its own checks, not these.)
   let refusedSaid = false;
   const fromControlWindow = (e) =>
-    !operator.isDestroyed() && e.sender === operator.webContents && e.senderFrame != null && e.senderFrame === operator.webContents.mainFrame && e.senderFrame.url.startsWith('app://operator/');
+    appWindows().some((w) => e.sender === w.webContents) && e.senderFrame != null && e.senderFrame === e.sender.mainFrame && e.senderFrame.url.startsWith('app://operator/');
   const handle = (channel, fn) =>
     ipcMain.handle(channel, (e, ...args) => {
       if (fromControlWindow(e)) return fn(e, ...args);
@@ -123,7 +141,10 @@ async function main() {
   const saveTabs = () => {
     clearTimeout(saveTimer);
     if (!started || !graphic.alive()) return;
-    const now = JSON.stringify(graphic.sessionTabs());
+    const tabs = graphic.sessionTabs();
+    // (A tab shown in a pop-out window: its window opens again with it, at the next start.)
+    tabs.tabs.forEach((t, i) => popouts.has(graphic.tabs[i]?.id) && (t.popout = true));
+    const now = JSON.stringify(tabs);
     if (now === savedTabs) return;
     savedTabs = now;
     const err = saveSetting('tabs', JSON.parse(now));
@@ -160,7 +181,13 @@ async function main() {
     wantFrames: () => output.wantsFrames(),
     onPreviewFrame: (bgra) => previewOutput.frame(bgra),
     wantPreviewFrames: () => previewOutput.wantsFrames(),
-    onMonitor: (role, jpeg) => toOperator('monitor', { role, jpeg }),
+    onMonitor: ({ role, id }, jpeg) => {
+      if (role) {
+        toOperator('monitor', { role, jpeg });
+        toPopout(role, 'monitor', { role, jpeg });
+      }
+      toPopout(id, 'monitor', { role: id, jpeg });
+    },
     onProgram: (p) => toOperator('held', p),
     onThumb: (t) => toOperator('thumb', t),
     onChange: () => {
@@ -596,7 +623,12 @@ ${iconUrl ? `<img src="${iconUrl}" alt="">` : ''}
         label: 'Tabs',
         submenu: [
           { label: 'New Tab', accelerator: 'CmdOrCtrl+T', click: () => run('tab-new').then(() => toOperator('focus-url')) },
-          { label: 'Close the Preview’s Tab', accelerator: 'CmdOrCtrl+W', click: () => run('tab-close') },
+          // (Cmd+W in a pop-out window closes that window, as in any app; in the control window, the preview's tab.)
+          {
+            label: 'Close the Preview’s Tab',
+            accelerator: 'CmdOrCtrl+W',
+            click: (_item, win) => (popoutKeyOf(win) ? win.close() : run('tab-close')),
+          },
           { label: 'Reopen Closed Tab', accelerator: 'CmdOrCtrl+Shift+T', click: () => run('tab-reopen') },
           { type: 'separator' },
           { label: 'Next Tab into Preview', accelerator: 'CmdOrCtrl+Alt+Right', click: () => run('tab-next', { by: 1 }) },
@@ -630,30 +662,34 @@ ${iconUrl ? `<img src="${iconUrl}" alt="">` : ''}
           { role: 'paste' },
           { role: 'delete' },
           { role: 'selectAll' },
+          { type: 'separator' },
+          // (In a pop-out window: its page. From the control window: the preview's, popped out.)
+          { label: 'Find…', accelerator: 'CmdOrCtrl+F', click: (_item, win) => find(win) },
         ],
       },
       {
         // (The preview's page.)
         label: 'Preview',
         submenu: [
-          { label: 'Open Location…', accelerator: 'CmdOrCtrl+L', click: () => toOperator('focus-url') },
-          { label: 'Back', accelerator: 'CmdOrCtrl+[', click: () => run('back') },
-          { label: 'Forward', accelerator: 'CmdOrCtrl+]', click: () => run('forward') },
-          { label: 'Reload', accelerator: 'CmdOrCtrl+R', click: () => run('reload') },
-          { label: 'Reload Ignoring Cache', accelerator: 'CmdOrCtrl+Shift+R', click: () => run('reload', { hard: true }) },
-          { label: 'Home', accelerator: 'CmdOrCtrl+Shift+H', click: () => run('home') },
+          // (With a pop-out window in front, these are its page's: Home is its tab's first page.)
+          { label: 'Open Location…', accelerator: 'CmdOrCtrl+L', click: (_i, win) => (popoutKeyOf(win) ? win.webContents.send('focus-url') : toOperator('focus-url')) },
+          { label: 'Back', accelerator: 'CmdOrCtrl+[', click: (_i, win) => run('back', at(win)) },
+          { label: 'Forward', accelerator: 'CmdOrCtrl+]', click: (_i, win) => run('forward', at(win)) },
+          { label: 'Reload', accelerator: 'CmdOrCtrl+R', click: (_i, win) => run('reload', at(win)) },
+          { label: 'Reload Ignoring Cache', accelerator: 'CmdOrCtrl+Shift+R', click: (_i, win) => run('reload', at(win, { hard: true })) },
+          { label: 'Home', accelerator: 'CmdOrCtrl+Shift+H', click: (_i, win) => (popoutKeyOf(win) ? run('tab-home', at(win)) : run('home')) },
           { label: 'Set This Page as Home', click: () => run('set-home') },
           { type: 'separator' },
-          { label: 'Zoom In', accelerator: 'CmdOrCtrl+=', click: () => run('zoom', { by: 1 }) },
-          { label: 'Zoom Out', accelerator: 'CmdOrCtrl+-', click: () => run('zoom', { by: -1 }) },
-          { label: 'Actual Size', accelerator: 'CmdOrCtrl+0', click: () => run('zoom', { reset: true }) },
+          { label: 'Zoom In', accelerator: 'CmdOrCtrl+=', click: (_i, win) => run('zoom', at(win, { by: 1 })) },
+          { label: 'Zoom Out', accelerator: 'CmdOrCtrl+-', click: (_i, win) => run('zoom', at(win, { by: -1 })) },
+          { label: 'Actual Size', accelerator: 'CmdOrCtrl+0', click: (_i, win) => run('zoom', at(win, { reset: true })) },
         ],
       },
       {
         // (Cmd+Option+1…9: into the preview (and on air with Auto Take). Control+Option+Cmd+1…9: on air, once loaded.)
         label: 'Favorites',
         submenu: [
-          { label: 'Add the Preview’s Page', accelerator: 'CmdOrCtrl+D', click: () => run('favorite-add') },
+          { label: 'Add the Preview’s Page', accelerator: 'CmdOrCtrl+D', click: (_i, win) => run('favorite-add', at(win)) },
           // (Cmd+Option+1…9: the nth into the preview; Control+Option+Cmd: on air. The keys are the control
           // window's, as the tabs': shown here.)
           ...(favs.length ? [{ type: 'separator' }] : []),
@@ -705,6 +741,9 @@ ${iconUrl ? `<img src="${iconUrl}" alt="">` : ''}
       {
         label: 'View',
         submenu: [
+          { label: 'Pop Out Preview', accelerator: 'CmdOrCtrl+Alt+P', click: () => openPopout('preview') },
+          { label: 'Pop Out Program', accelerator: 'CmdOrCtrl+Alt+O', click: () => openPopout('program') },
+          { type: 'separator' },
           { label: 'Preview Developer Tools', click: () => graphic.preview.wc.openDevTools({ mode: 'detach' }) },
           { label: 'Program Developer Tools', click: () => graphic.program.wc.openDevTools({ mode: 'detach' }) },
           { type: 'separator' },
@@ -793,6 +832,105 @@ ${iconUrl ? `<img src="${iconUrl}" alt="">` : ''}
     if (auto && auto.checked !== s.auto) auto.checked = s.auto;
   }
 
+  // ---- Pop-out windows ---------------------------------------------------------------------------
+  // A window of its own for the preview's page, the program's (View → Pop Out…, or ⧉ on its monitor),
+  // or one tab's (⧉ on its card), as big as you like: the page is still 1920×1080 (what goes out
+  // doesn't change), its picture drawn to fill the window, sharp up to full size, and clicked,
+  // scrolled, typed into and zoomed there as on a monitor. A tab in the background draws while one
+  // shows it. The menus' page shortcuts (Cmd+L, R, [, ], +, −, D, F…) act on the window in front.
+  // Each window's place and size are kept (popout-preview, popout-program, popout-tab), and the
+  // windows open at quitting open again at the next start (popouts; a tab's, with its tab).
+  /** A pop-out window's title row and its bar below the picture (px): operator/popout.css. */
+  const POPOUT_CHROME = 40 + 32;
+  /** The picture's width a pop-out window wants: its own, in the screen's pixels. */
+  const fitPopout = (key) => {
+    const win = popouts.get(key);
+    if (!win || win.isDestroyed()) return;
+    const [w] = win.getContentSize();
+    graphic.setMonitorWidth(key, w * (screen.getDisplayMatching(win.getBounds()).scaleFactor || 1));
+  };
+  /** The feeds' pop-out windows open now, for the next start (not as the app quits: they open again then). */
+  const savePopouts = () => {
+    if (quitting) return;
+    const err = saveSetting('popouts', [...popouts.keys()].filter((k) => k === 'preview' || k === 'program'));
+    if (err) commands?.error(err);
+    rememberTabs();
+  };
+  /** A pop-out window for key ('preview', 'program' or a tab's id): opened, or brought to the front. Resolves once it's shown. */
+  const openPopout = (key) => {
+    const feed = key === 'preview' || key === 'program';
+    if (!feed && !graphic.tabs.some((b) => b.id === key)) throw new Error(`popout: preview, program or a tab's id, not ${key}`);
+    const open = popouts.get(key);
+    if (open && !open.isDestroyed()) {
+      if (open.isMinimized()) open.restore();
+      open.focus();
+      return Promise.resolve(open);
+    }
+    const place = feed ? `popout-${key}` : 'popout-tab';
+    const saved = fileSetting(place);
+    // (Where it was, if that's still on a screen; otherwise 1280 wide, centred.)
+    const onScreen = saved && screen.getAllDisplays().some((d) => {
+      const a = d.workArea;
+      return saved.x < a.x + a.width - 80 && saved.x + saved.width > a.x + 80 && saved.y >= a.y - 20 && saved.y < a.y + a.height - 80;
+    });
+    const win = new BrowserWindow({
+      ...(onScreen ? { x: saved.x, y: saved.y, width: saved.width, height: saved.height } : { width: 1280, height: 720 + POPOUT_CHROME }),
+      minWidth: 560,
+      minHeight: 315 + POPOUT_CHROME,
+      useContentSize: !onScreen,
+      title: key === 'program' ? 'Program (on air)' : key === 'preview' ? 'Preview' : 'Tab',
+      backgroundColor: '#15181d',
+      webPreferences: { preload: join(here, 'preload.cjs'), sandbox: true, contextIsolation: true, devTools: false },
+    });
+    popouts.set(key, win);
+    // (16:9 between its title row and its bar, however it's resized.)
+    win.setAspectRatio(16 / 9, { width: 0, height: POPOUT_CHROME });
+    win.webContents.on('will-navigate', (e) => e.preventDefault());
+    win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+    let saveTimer = null;
+    const placed = () => {
+      fitPopout(key);
+      clearTimeout(saveTimer);
+      saveTimer = setTimeout(() => !win.isDestroyed() && saveSetting(place, win.getBounds()), 500);
+    };
+    win.on('resize', placed);
+    win.on('move', placed);
+    win.on('closed', () => {
+      clearTimeout(saveTimer);
+      if (popouts.get(key) === win) popouts.delete(key);
+      if (graphic?.alive()) graphic.setMonitorWidth(key, null);
+      savePopouts();
+    });
+    savePopouts();
+    return win.loadURL(`app://operator/popout.html?key=${encodeURIComponent(key)}`).then(() => {
+      fitPopout(key);
+      // (A picture now, for the window just loaded: a still page sends none until it changes.)
+      const b = graphic.pageFor(key);
+      if (b?.alive()) b.wc.invalidate();
+      return win;
+    });
+  };
+  handle('popout', (_e, key) => openPopout(String(key)).then(() => null));
+  /** A menu item's page: the pop-out window's in front, as a target for the command; or as it was (the preview's). */
+  const at = (win, args = {}) => {
+    const key = popoutKeyOf(win);
+    return key ? { ...args, target: key } : args;
+  };
+  // (The pop-out windows open at quitting, open again (the tabs, above, are open by now): the feeds', and each tab's, with its tab.)
+  {
+    const feeds = fileSetting('popouts');
+    const keys = [...(Array.isArray(feeds) ? feeds.filter((k) => k === 'preview' || k === 'program') : []), ...tabs.map((t, i) => t.popout && graphic.tabs[i]?.id).filter(Boolean)];
+    for (const key of keys) openPopout(key).catch((e) => commands.error(`pop-out window: ${e.message}`));
+  }
+
+  /** Cmd+F: the find bar in the pop-out window in front; from the control window, the preview's, popped out. */
+  const find = (win) => {
+    if (popoutKeyOf(win)) return win.webContents.send('find');
+    openPopout('preview')
+      .then((w) => w.webContents.send('find'))
+      .catch((e) => commands.error(e.message));
+  };
+
   // The control window's status (and the Output menu's tick): 10 a second.
   const timer = setInterval(() => {
     const s = commands.status();
@@ -801,7 +939,17 @@ ${iconUrl ? `<img src="${iconUrl}" alt="">` : ''}
       refreshMenu(s.output.decklink);
     }
     showOutputs(s.output.outputs, s.previewOutput.outputs, s.output.syphon);
+    s.popouts = [...popouts.keys()];
     toOperator('status', s);
+    // (Each pop-out window: the status, with its own page; a tab's, closed with its tab.)
+    for (const [key, win] of popouts) {
+      const b = graphic.pageFor(key);
+      if (!b) {
+        win.close();
+        continue;
+      }
+      toPopout(key, 'status', { ...s, page: b.nav(), pageState: graphic.stateOf(b), pageN: graphic.tabs.indexOf(b) + 1 });
+    }
   }, 100);
 
   // Quitting (the control window closed, or Cmd+Q): the browser first, so nothing it does as its
@@ -810,6 +958,7 @@ ${iconUrl ? `<img src="${iconUrl}" alt="">` : ''}
   const shutdown = () => {
     if (shutDown) return;
     shutDown = true;
+    quitting = true;
     clearInterval(timer);
     updater.stop();
     saveTabs();

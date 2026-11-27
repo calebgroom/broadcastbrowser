@@ -25,6 +25,9 @@
 //
 // A page (target: preview, the default, or program)
 //   back, forward     { target? }       through the page's history
+//   tab-home  { target? }               the tab back to the page it started on (its home)
+//   find      { target?, text, next?, forward? }   find on the page: { matches, active } (not on air)
+//   find-stop { target? }               the find's highlights gone
 //   reload    { target?, hard? }        the page again (hard: not from the cache). On air: held till it's loaded
 //   stop      { target? }               stop loading
 //   scroll    { target?, by? | screens?, smooth? }   px or screens (negative: up)
@@ -341,6 +344,18 @@ export class Commands {
         break;
       case 'forward':
         page().forward();
+        break;
+      case 'tab-home':
+        page().goHome();
+        break;
+      // Find on the page (a pop-out window's Cmd+F). Not on the page on air: its highlights would go out.
+      case 'find': {
+        const b = page();
+        if (b === g.program) throw new Error('find: not on the page on air (its highlights would go out with it)');
+        return b.find(a.text, { forward: onOff(a.forward, 'find: forward') !== false, next: onOff(a.next, 'find: next') === true });
+      }
+      case 'find-stop':
+        page().stopFind();
         break;
       case 'reload':
         page().reload(onOff(a.hard, 'reload: hard') === true);

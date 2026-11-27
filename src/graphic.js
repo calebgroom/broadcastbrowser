@@ -36,7 +36,7 @@
 
 import { app, session } from 'electron';
 import { AdBlock } from './adblock.js';
-import { Browser } from './browser.js';
+import { Browser, MONITOR_WIDTH } from './browser.js';
 import { HEIGHT, WIDTH } from './ndi.js';
 import { handleScheme } from './site.js';
 
@@ -128,6 +128,12 @@ export class Graphic {
 
     /** The tabs, in the operator's order: the program, the preview and the rest. */
     this.tabs = [];
+    /**
+     * The pop-out windows' picture widths (px), by what each shows: 'preview', 'program' (whichever
+     * page is that feed's), or a tab's id (that tab, wherever it is). A page's pictures are as wide as
+     * the widest window showing it, or the control window's monitor's.
+     */
+    this.popWidths = {};
     /** Tabs closed, most recent first: { url, title, zoom, scrollY }, to open again. */
     this.closedTabs = [];
     let made = 0;
@@ -138,7 +144,11 @@ export class Graphic {
         partition: this.partition,
         look: () => this.look,
         onPaint: (x, img) => this.paint(x, img),
-        onMonitor: (x, jpeg) => (x === this.program || x === this.preview) && o.onMonitor(this.roleOf(x), jpeg),
+        // (Its picture: to the control window's monitor, if it's the preview or the program, and to any
+        // pop-out window showing it, main.js.)
+        onMonitor: (x, jpeg) => o.onMonitor({ role: x === this.program || x === this.preview ? this.roleOf(x) : null, id: x.id }, jpeg),
+        monitorWidth: (x) => this.monitorWidthOf(x),
+        popped: (x) => !!this.popWidths[x.id],
         onEvent: (x, kind) => this.event(x, kind),
         // (A pop-up: the same tab.)
         onOpen: (x, url) => {
@@ -182,6 +192,41 @@ export class Graphic {
     });
   }
 
+  /**
+   * A pop-out window's picture width: key, what it shows ('preview', 'program' or a tab's id); w px
+   * (at most the page's own 1920), or null when it closes. The page's next picture is at that size
+   * (one now, so a new window isn't blank). A tab in the background draws for it while it's open.
+   */
+  setMonitorWidth(key, w) {
+    const width = w ? Math.max(MONITOR_WIDTH, Math.min(WIDTH, Math.round(w))) : 0;
+    if ((this.popWidths[key] ?? 0) === width) return;
+    if (width) this.popWidths[key] = width;
+    else delete this.popWidths[key];
+    const b = this.pageFor(key);
+    if (b?.alive()) {
+      if (key === b.id) b.setPopped(!!width);
+      b.wc.invalidate();
+    }
+  }
+
+  /** A page's picture width: the widest pop-out window showing it, or the control window's monitor's. */
+  monitorWidthOf(b) {
+    const role = b === this.program ? 'program' : b === this.preview ? 'preview' : null;
+    return Math.max(MONITOR_WIDTH, this.popWidths[b.id] ?? 0, (role && this.popWidths[role]) || 0);
+  }
+
+  /** What a pop-out window shows: 'preview' or 'program' (that feed's page), or a tab by its id. */
+  pageFor(key) {
+    if (key === 'preview') return this.preview;
+    if (key === 'program') return this.program;
+    return this.tabs.find((b) => b.id === key) ?? null;
+  }
+
+  /** Where a tab is: 'program', 'preview' or 'open' (in the background). */
+  stateOf(b) {
+    return b === this.program ? 'program' : b === this.preview ? 'preview' : 'open';
+  }
+
   roleOf(b) {
     return b === this.program ? 'program' : 'preview';
   }
@@ -190,7 +235,10 @@ export class Graphic {
   target(t) {
     if (t === undefined || t === null || t === '' || t === 'preview') return this.preview;
     if (t === 'program' || t === 'air') return this.program;
-    throw new Error(`target must be preview or program (got ${t})`);
+    // (A tab by its id: a pop-out window's, for a tab in the background.)
+    const b = this.tabs.find((x) => x.id === t);
+    if (b) return b;
+    throw new Error(`target must be preview, program or a tab's id (got ${t})`);
   }
 
   alive() {
@@ -428,7 +476,7 @@ export class Graphic {
    * A page in a new tab, into the preview (the tab there stays open in the background; a
    * placeholder there is used for it). placeholder: the new tab is one (a new, empty tab).
    */
-  openTab(url, { zoom, take, scrollY, placeholder = false } = {}) {
+  openTab(url, { zoom, take, scrollY, placeholder = false, home = null } = {}) {
     let b = this.preview;
     if (!b.isBlank()) {
       b = this.make();
@@ -437,7 +485,7 @@ export class Graphic {
     }
     b.zoom = zoom ?? 1;
     b.wantZoom = zoom ?? null;
-    b.go(url, { scrollY, placeholder });
+    b.go(url, { scrollY, placeholder, home });
     this.tabsChanged();
     if (take ?? this.look.autoTake) this.take();
     this.o.onChange();
@@ -568,7 +616,7 @@ export class Graphic {
     this.tabs = this.tabs.filter((x) => x !== b);
     const n = remember && !b.isBlank() ? b.nav() : null;
     if (n?.url) {
-      const entry = { url: n.url, title: n.title, zoom: n.zoom, scrollY: 0 };
+      const entry = { url: n.url, title: n.title, zoom: n.zoom, scrollY: 0, home: b.homeUrl };
       this.closedTabs = [entry, ...this.closedTabs].slice(0, CLOSED_MAX);
       b.scrollY()
         .then((y) => (entry.scrollY = y))
@@ -580,7 +628,7 @@ export class Graphic {
   reopenTab({ take } = {}) {
     const e = this.closedTabs.shift();
     if (!e) throw new Error('no closed tab to open again');
-    this.openTab(e.url, { zoom: e.zoom, scrollY: e.scrollY, take });
+    this.openTab(e.url, { zoom: e.zoom, scrollY: e.scrollY, take, home: e.home });
   }
 
   /** A tab to place `to` (from 1), or by: left (-1) or right (1). */
@@ -617,7 +665,7 @@ export class Graphic {
       const b = i === programAt ? this.program : i === previewAt ? this.preview : this.make();
       if (b !== this.program && b !== this.preview) b.setRole('tab');
       b.zoom = Number(t.zoom) > 0 ? Number(t.zoom) : 1;
-      b.go(t.url, { placeholder: !!t.blank && t.url === BLANK });
+      b.go(t.url, { placeholder: !!t.blank && t.url === BLANK, home: typeof t.home === 'string' ? t.home : null });
       return b;
     });
     this.tabsChanged();
@@ -629,7 +677,13 @@ export class Graphic {
     return {
       tabs: this.tabs.map((b) => {
         const n = b.nav();
-        return { url: n?.url || BLANK, ...(n?.zoom && n.zoom !== 1 ? { zoom: n.zoom } : {}), ...(b.isBlank() ? { blank: true } : {}) };
+        return {
+          url: n?.url || BLANK,
+          ...(n?.zoom && n.zoom !== 1 ? { zoom: n.zoom } : {}),
+          ...(b.isBlank() ? { blank: true } : {}),
+          // (Its home, when it isn't the page it's on: Home in a pop-out window, after the next start.)
+          ...(b.homeUrl && b.homeUrl !== n?.url ? { home: b.homeUrl } : {}),
+        };
       }),
       program: this.tabs.indexOf(this.program),
       preview: this.tabs.indexOf(this.preview),

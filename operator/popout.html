@@ -1,0 +1,54 @@
+<!doctype html>
+<!-- A pop-out window (main.js, "Pop-out windows"): a feed's page or a tab's, as big as the window. popout.js. -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' app:; style-src 'self' app:; img-src 'self' app: blob: data:" />
+    <title>Broadcast Browser</title>
+    <link rel="stylesheet" href="popout.css" />
+  </head>
+  <body>
+    <header>
+      <span id="tag" class="tag"></span>
+      <button data-act="back" id="back" title="Back (Cmd+[)">←</button>
+      <button data-act="forward" id="forward" title="Forward (Cmd+])">→</button>
+      <button data-act="home" id="home" title="Home: the page this tab started on (Cmd+Shift+H)">⌂</button>
+      <input id="url" class="url" type="text" spellcheck="false" autocomplete="off" aria-label="Address" />
+      <div class="tools">
+        <button id="interact" aria-pressed="false" title="Interact: click, scroll and type into this page. Esc twice to stop.">Interact</button>
+        <span class="sep"></span>
+        <button data-act="scroll-up" title="Up a screen">⇞</button>
+        <button data-act="scroll-down" title="Down a screen">⇟</button>
+        <button data-act="top" title="The top of the page">⤒</button>
+        <span class="sep"></span>
+        <button data-act="zoom-out" title="Zoom out (Cmd −)">−</button>
+        <button data-act="zoom-reset" id="zoom" class="zoom" title="Actual size (Cmd 0)">100%</button>
+        <button data-act="zoom-in" title="Zoom in (Cmd +)">+</button>
+        <span class="sep"></span>
+        <button data-act="reload" id="reload" title="Reload the page (Cmd+R)">⟳</button>
+      </div>
+    </header>
+    <main id="screen" tabindex="0">
+      <canvas id="canvas"></canvas>
+      <div id="loadbar" class="loadbar" hidden></div>
+      <div id="error" class="error" hidden></div>
+    </main>
+    <!-- (Outside the picture: what's typed here isn't the page's.) -->
+    <form id="find" class="find" hidden>
+      <input id="find-text" type="search" spellcheck="false" autocomplete="off" placeholder="Find on this page" aria-label="Find on this page" />
+      <span id="find-count" class="count"></span>
+      <button type="button" id="find-prev" title="Previous (Shift+Return)">↑</button>
+      <button type="button" id="find-next" title="Next (Return)">↓</button>
+      <button type="button" id="find-close" title="Close (Esc)">×</button>
+    </form>
+    <footer>
+      <span id="air" class="air"></span>
+      <span id="note" class="note" hidden></span>
+      <div class="acts">
+        <button id="to-preview" hidden>To Preview</button>
+        <button id="take" class="take" hidden>Take</button>
+      </div>
+    </footer>
+    <script type="module" src="popout.js"></script>
+  </body>
+</html>
